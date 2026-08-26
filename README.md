@@ -120,6 +120,21 @@ would let a metric bug pass through unchanged — risk R-5, rated Critical.
 
 ---
 
+## Measured against the NFR-1 budgets
+
+Full NIFTY 500 universe, 562k price rows, five years of history, on the
+development machine:
+
+| Requirement | Budget | Measured |
+|---|---|---|
+| NFR-1.7 metric recomputation, 500 symbols | 60 s | **42.4 s** |
+| NFR-1.8 full incremental EOD pipeline | 15 min | **61 s** |
+| Cold backfill, 500 symbols | — | ~6 min (rate-limited) |
+
+Corporate-action reconciliation passes across all 500 symbols. Of 500
+constituents, 475 are eligible; 15 are excluded for insufficient history and
+30 for a gap disqualifier.
+
 ## Layout
 
 ```
