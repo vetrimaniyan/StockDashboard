@@ -18,10 +18,26 @@ def _read_sql(name: str) -> str:
     return (_SCHEMA_DIR / name).read_text(encoding="utf-8")
 
 
+class DatabaseBusyError(RuntimeError):
+    """The analytical store is held by a writer.
+
+    DuckDB permits one read-write process or many read-only ones, never both.
+    The nightly pipeline is a writer, so reads during a run must fail visibly
+    rather than appear as a server error — the UI reports "pipeline running"
+    instead of showing nothing.
+    """
+
+
 @contextmanager
 def analytical(read_only: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
     settings.ensure_dirs()
-    conn = duckdb.connect(str(settings.analytical_db), read_only=read_only)
+    try:
+        conn = duckdb.connect(str(settings.analytical_db), read_only=read_only)
+    except duckdb.IOException as exc:
+        raise DatabaseBusyError(
+            "Analytical store is locked by another process, most likely a "
+            "pipeline run in progress."
+        ) from exc
     try:
         yield conn
     finally:

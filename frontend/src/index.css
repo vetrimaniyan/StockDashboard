@@ -1,0 +1,56 @@
+@import 'tailwindcss';
+
+:root {
+  --bg: #0b0f16;
+  --panel: #131a24;
+  --panel-2: #1a2330;
+  --border: #263242;
+  --text: #e6edf5;
+  --muted: #8fa3ba;
+  --up: #35c97f;
+  --down: #ef5f6b;
+  --accent: #5b9dff;
+  --warn: #f0b429;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular figures keep decimal points aligned down a numeric column. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: #2a3646;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a495c;
+}
+
+/* NFR-6.2: keyboard navigation must be visible, not just possible. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
