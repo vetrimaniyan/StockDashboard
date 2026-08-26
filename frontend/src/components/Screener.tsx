@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import type { MetricDefinition, PresetSummary, ScreenResponse } from '../api'
+import { api, type MetricDefinition, type PresetSummary, type ScreenResponse } from '../api'
 import { ResultsGrid } from './ResultsGrid'
 
 interface Condition {
@@ -80,6 +80,23 @@ export function Screener({
   const [conditions, setConditions] = useState<Condition[]>([])
   const [nextId, setNextId] = useState(1)
   const [open, setOpen] = useState(false)
+  const [exportNote, setExportNote] = useState<string | null>(null)
+
+  const runExport = async (fmt: 'xlsx' | 'csv' | 'html') => {
+    if (!screen) return
+    setExportNote(`Writing ${fmt}…`)
+    try {
+      const result = await api.exportScreen(fmt, {
+        screen_name: screen.screen_name,
+        definition: screen.definition,
+      })
+      // The API writes to the local export directory; the browser never
+      // downloads it, since this is a self-hosted single-user tool.
+      setExportNote(`Saved ${result.filename} (${result.row_count} rows)`)
+    } catch (e) {
+      setExportNote(`Export failed: ${(e as Error).message}`)
+    }
+  }
 
   const fields = useMemo(() => {
     const keys = new Set<string>(['tradingsymbol', 'sector', 'industry', 'close'])
@@ -130,13 +147,32 @@ export function Screener({
             {p.name}
           </button>
         ))}
-        <button
-          className="ml-auto px-2.5 py-1 rounded border border-[var(--border)] hover:border-[var(--accent)] whitespace-nowrap"
-          onClick={() => setOpen((v) => !v)}
-        >
-          Filters {conditions.length ? `(${conditions.length})` : ''}
-        </button>
+        <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
+          <button
+            className="px-2.5 py-1 rounded border border-[var(--border)] hover:border-[var(--accent)]"
+            onClick={() => setOpen((v) => !v)}
+          >
+            Filters {conditions.length ? `(${conditions.length})` : ''}
+          </button>
+          <span className="text-[var(--muted)]">Export</span>
+          {(['xlsx', 'csv', 'html'] as const).map((fmt) => (
+            <button
+              key={fmt}
+              disabled={!screen}
+              className="px-2 py-1 rounded border border-[var(--border)] hover:border-[var(--accent)] disabled:opacity-40"
+              onClick={() => runExport(fmt)}
+            >
+              {fmt}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {exportNote && (
+        <div className="px-3 py-1 border-b border-[var(--border)] text-[var(--muted)]">
+          {exportNote}
+        </div>
+      )}
 
       {screen && (
         <p className="px-3 py-1.5 text-[var(--muted)] border-b border-[var(--border)] leading-snug">

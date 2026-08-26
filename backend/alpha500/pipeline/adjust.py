@@ -92,10 +92,46 @@ def apply_adjustments(conn: duckdb.DuckDBPyConnection, instrument_token: int) ->
     ).fetchall()
 
     factors = compute_adj_factors(trade_dates, adjusted_through, actions)
-    conn.executemany(
-        "UPDATE ohlcv_daily SET adj_factor = ? WHERE instrument_token = ? AND trade_date = ?",
-        [(float(f), instrument_token, d) for f, d in zip(factors, trade_dates)],
+
+    # Nothing to write when the source already carries every adjustment, which
+    # is the common case for a pre-adjusted feed. Skipping the write entirely
+    # keeps a 500-symbol backfill from issuing hundreds of thousands of
+    # no-op updates.
+    if not actions or np.all(factors == 1.0):
+        already_default = conn.execute(
+            "SELECT count(*) FROM ohlcv_daily "
+            "WHERE instrument_token = ? AND adj_factor <> 1.0",
+            [instrument_token],
+        ).fetchone()[0]
+        if already_default == 0:
+            return len(trade_dates)
+
+    import pyarrow as pa
+
+    conn.register(
+        "_adj_src",
+        pa.table(
+            {
+                "trade_date": pa.array(list(trade_dates), pa.date32()),
+                "factor": pa.array([float(f) for f in factors], pa.float64()),
+            }
+        ),
     )
+    try:
+        # One set-based update rather than one statement per session.
+        conn.execute(
+            """
+            UPDATE ohlcv_daily AS t
+               SET adj_factor = s.factor
+              FROM _adj_src AS s
+             WHERE t.instrument_token = ?
+               AND t.trade_date = s.trade_date
+               AND t.adj_factor IS DISTINCT FROM s.factor
+            """,
+            [instrument_token],
+        )
+    finally:
+        conn.unregister("_adj_src")
     return len(trade_dates)
 
 

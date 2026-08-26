@@ -162,4 +162,12 @@ export const api = {
     }),
   stock: (symbol: string) =>
     request<StockDetail>(`/api/stock/${encodeURIComponent(symbol)}`),
+  exportScreen: (
+    fmt: 'xlsx' | 'csv' | 'html',
+    payload: { screen_name: string; definition: Record<string, unknown>; columns?: string[] },
+  ) =>
+    request<{ path: string; filename: string; row_count: number; data_as_of: string }>(
+      `/api/export/${fmt}`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
 }

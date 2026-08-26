@@ -133,9 +133,25 @@ def cmd_reconcile(_args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
+    host = args.host or settings.api_host
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        # NFR-4.1: binding beyond loopback must be deliberate and warned about.
+        print(
+            f"\n  WARNING: binding to {host} exposes this service beyond loopback.\n"
+            "  Market-data licensing does not permit redistribution, and the API\n"
+            "  has no authentication. Bind to 127.0.0.1 unless you are certain.\n"
+        )
+
+    if args.with_scheduler:
+        from alpha500.scheduler import build_scheduler
+
+        scheduler = build_scheduler()
+        scheduler.start()
+        print("  Scheduler started — EOD pipeline runs 18:45 IST on trading days.")
+
     uvicorn.run(
         "alpha500.api.main:app",
-        host=args.host or settings.api_host,
+        host=host,
         port=args.port or settings.api_port,
         reload=args.reload,
     )
@@ -173,6 +189,11 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)
     p_serve.add_argument("--reload", action="store_true")
+    p_serve.add_argument(
+        "--with-scheduler",
+        action="store_true",
+        help="run the 18:45 IST EOD pipeline in-process (FR-5.1)",
+    )
 
     args = parser.parse_args(argv)
     handlers = {
