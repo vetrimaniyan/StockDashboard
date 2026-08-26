@@ -83,7 +83,8 @@ def compute_series_metrics(
     cols["sma_200_slope_1m"] = slope_1m
 
     cols["ma_alignment"] = _bool(
-        (close > sma_50) & (sma_50 > sma_100) & (sma_100 > sma_200)
+        (close > sma_50) & (sma_50 > sma_100) & (sma_100 > sma_200),
+        sma_50, sma_100, sma_200,
     )
 
     # --- 52-week (5.6) ---------------------------------------------------
@@ -112,7 +113,7 @@ def compute_series_metrics(
     ret_1d = cols["ret_1d"]
     max_abs_move = k.rolling_max(np.abs(np.nan_to_num(ret_1d, nan=0.0)), lookback)
     gap_disqualified = max_abs_move > settings.gap_disqualifier_pct
-    cols["gap_disqualified"] = _bool(gap_disqualified)
+    cols["gap_disqualified"] = _bool(gap_disqualified, max_abs_move)
 
     score = annualised * r2
     cols["momentum_score"] = np.where(gap_disqualified, np.nan, score)
@@ -158,15 +159,23 @@ def compute_series_metrics(
     rel_volume = cols["rel_volume"]
     vol_confirmed = rel_volume >= settings.rel_volume_threshold
 
-    cols["is_n_day_breakout_20"] = _bool(_breakout(close, high, 20) & vol_confirmed)
-    cols["is_n_day_breakout_50"] = _bool(_breakout(close, high, 50) & vol_confirmed)
+    prior_high_20 = _prior_rolling_max(high, 20)
+    prior_high_50 = _prior_rolling_max(high, 50)
+    cols["is_n_day_breakout_20"] = _bool(
+        (close > prior_high_20) & vol_confirmed, prior_high_20, rel_volume
+    )
+    cols["is_n_day_breakout_50"] = _bool(
+        (close > prior_high_50) & vol_confirmed, prior_high_50, rel_volume
+    )
 
     prior_52w_high = np.full(n, np.nan)
     prior_52w_high[1:] = high_52w[:-1]
-    cols["is_52w_high_breakout"] = _bool((close > prior_52w_high) & vol_confirmed)
+    cols["is_52w_high_breakout"] = _bool(
+        (close > prior_52w_high) & vol_confirmed, prior_52w_high, rel_volume
+    )
 
-    in_base, depth, length = _detect_base(high, low, atr_14, close)
-    cols["is_in_base"] = _bool(in_base)
+    in_base, depth, length, base_valid = _detect_base(high, low, atr_14, close)
+    cols["is_in_base"] = _bool(in_base, np.where(base_valid, 1.0, np.nan))
     cols["base_depth_pct"] = depth
     cols["base_length_days"] = length
 
@@ -183,23 +192,35 @@ def compute_series_metrics(
     return SeriesMetrics(trade_date=trade_date, close=close, columns=cols)
 
 
-def _bool(mask: NDArray[np.bool_]) -> NDArray[Any]:
-    """Bool array with nan-driven positions set to None rather than False.
+def _bool(mask: NDArray[np.bool_], *inputs: Floats) -> NDArray[Any]:
+    """Boolean column, null wherever its inputs were not yet computable.
 
-    A metric that cannot be computed is null (FR-6.1); collapsing it to False
-    would make "not a breakout" indistinguishable from "not enough history".
+    A metric that cannot be computed is null, never False (FR-6.1). Any
+    comparison against nan yields False, so without this a symbol with 30
+    sessions of history would report "not a breakout" in exactly the same way
+    as one that genuinely failed the test — and a screen filtering on
+    ``= False`` would silently scoop up every warm-up row.
     """
-    return np.where(mask, True, False).astype(object)
+    out = np.empty(mask.shape, dtype=object)
+    valid = np.ones(mask.shape, dtype=bool)
+    for values in inputs:
+        valid &= np.isfinite(values)
+    out[valid] = mask[valid]
+    out[~valid] = None
+    return out
 
 
-def _breakout(close: Floats, high: Floats, window: int) -> NDArray[np.bool_]:
-    """``C_0 > max(High over the previous N sessions)`` — today's bar excluded."""
-    n = close.size
-    prior_high = np.full(n, np.nan)
+def _prior_rolling_max(high: Floats, window: int) -> Floats:
+    """Rolling max of High over the N sessions *before* today.
+
+    Today's own bar is excluded: a breakout is price clearing prior resistance,
+    and including today would make every new high trivially true of itself.
+    """
+    n = high.size
+    out = np.full(n, np.nan)
     rolled = k.rolling_max(high, window)
-    prior_high[1:] = rolled[:-1]
-    with np.errstate(invalid="ignore"):
-        return close > prior_high
+    out[1:] = rolled[:-1]
+    return out
 
 
 def _trend_template_partial(
@@ -234,7 +255,7 @@ def _trend_template_partial(
 
 def _detect_base(
     high: Floats, low: Floats, atr_14: Floats, close: Floats
-) -> tuple[NDArray[np.bool_], Floats, Floats]:
+) -> tuple[NDArray[np.bool_], Floats, Floats, NDArray[np.bool_]]:
     """Volatility-contraction base detection (FR-6.14).
 
     Three conditions must hold together over the trailing window: a shallow
@@ -247,8 +268,9 @@ def _detect_base(
     depth = np.full(n, np.nan)
     length = np.full(n, np.nan)
     in_base = np.zeros(n, dtype=bool)
+    valid = np.zeros(n, dtype=bool)
     if window <= 0 or n < window:
-        return in_base, depth, length
+        return in_base, depth, length, valid
 
     win_high = k.rolling_max(high, window)
     win_low = k.rolling_min(low, window)
@@ -275,10 +297,22 @@ def _detect_base(
         in_base = (depth <= 0.15) & contracting & prior_advance
     in_base = np.nan_to_num(in_base, nan=False).astype(bool)
 
+    # The prior-advance leg needs a full quarter behind the window, so before
+    # that point the result is "not yet computable", not "condition not met".
+    valid = np.zeros(n, dtype=bool)
+    if n > lead + p.QUARTER:
+        valid[lead + p.QUARTER :] = True
+    valid &= np.isfinite(depth) & np.isfinite(atr_at_start)
+    in_base &= valid
+    length[~valid] = np.nan
+
     # base_length_days: consecutive sessions the condition has held.
     run = 0
     for i in range(n):
+        if not valid[i]:
+            run = 0
+            continue
         run = run + 1 if in_base[i] else 0
         length[i] = float(run)
 
-    return in_base, depth, length
+    return in_base, depth, length, valid

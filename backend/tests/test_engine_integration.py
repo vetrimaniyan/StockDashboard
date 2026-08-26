@@ -114,6 +114,45 @@ def test_downtrend_sits_low_in_its_52_week_range(conn, universe):
     assert m["FALLER"][8] < 0.1, "a steady faller should sit near its 52-week low"
 
 
+def test_boolean_metrics_are_null_not_false_during_warm_up(conn, universe):
+    """FR-6.1: a metric that cannot be computed is null, never False.
+
+    Any comparison against nan yields False, so without explicit null handling
+    a symbol still inside its warm-up window reports "not a breakout" in
+    exactly the same way as one that genuinely failed the test — and a screen
+    filtering on ``= False`` would silently scoop up every warm-up row.
+    """
+    from alpha500.metrics.series import compute_series_metrics
+
+    import numpy as np
+
+    from tests.conftest import synth_series, trading_days
+
+    # 40 sessions: far short of the 200 and 252 the long windows need.
+    dates = trading_days(40)
+    rows = synth_series(dates, 100, 0.001)
+    arrays = {
+        name: np.array([r[i] for r in rows], dtype=np.float64)
+        for i, name in enumerate(("_", "open", "high", "low", "close", "volume"))
+        if name != "_"
+    }
+
+    computed = compute_series_metrics(
+        trade_date=np.array(dates, dtype=object),
+        open_=arrays["open"],
+        high=arrays["high"],
+        low=arrays["low"],
+        close=arrays["close"],
+        volume=arrays["volume"],
+    )
+
+    for name in ("ma_alignment", "is_52w_high_breakout", "is_in_base"):
+        assert computed.columns[name][-1] is None, (
+            f"{name} should be null with only 40 sessions of history, "
+            f"got {computed.columns[name][-1]!r}"
+        )
+
+
 def test_recomputation_is_deterministic(conn, universe):
     """Acceptance criterion 5, and AR-4.
 

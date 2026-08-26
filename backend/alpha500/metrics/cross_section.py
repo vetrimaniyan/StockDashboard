@@ -164,7 +164,12 @@ def finalise_trend_template(
         eighth = np.where(rs_rating_values >= 70, 1.0, 0.0)
     score = partial + eighth
     score = np.where(np.isfinite(partial), score, np.nan)
-    is_template = np.where(np.isfinite(score), score >= 8.0, False).astype(object)
+
+    # Null, not False, where the score could not be computed (FR-6.1).
+    is_template = np.empty(score.shape, dtype=object)
+    valid = np.isfinite(score)
+    is_template[valid] = score[valid] >= 8.0
+    is_template[~valid] = None
     return score, is_template
 
 
@@ -189,4 +194,13 @@ def detect_pullback(
             & (rsi_14 >= 40)
             & (rsi_14 <= 55)
         )
-    return np.where(result, True, False).astype(object)
+
+    out = np.empty(result.shape, dtype=object)
+    valid = (
+        np.isfinite(close) & np.isfinite(ema_21) & np.isfinite(sma_50)
+        & np.isfinite(ret_1w) & np.isfinite(rsi_14)
+        & (is_trend_template != None)  # noqa: E711 - object array, not a scalar
+    )
+    out[valid] = result[valid]
+    out[~valid] = None
+    return out
