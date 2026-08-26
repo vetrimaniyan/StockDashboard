@@ -61,8 +61,11 @@ def _load_prices(
     """Adjusted OHLCV per instrument, oldest first, up to and including ``as_of``."""
     if not tokens:
         return {}
-    conn.execute("CREATE OR REPLACE TEMP TABLE _tok (instrument_token BIGINT)")
-    conn.executemany("INSERT INTO _tok VALUES (?)", [(t,) for t in tokens])
+    import pyarrow as pa
+
+    conn.register("_tok_src", pa.table({"instrument_token": pa.array(list(tokens), pa.int64())}))
+    conn.execute("CREATE OR REPLACE TEMP TABLE _tok AS SELECT * FROM _tok_src")
+    conn.unregister("_tok_src")
 
     table = conn.execute(
         """
@@ -79,7 +82,7 @@ def _load_prices(
          ORDER BY o.instrument_token, o.trade_date
         """,
         [as_of],
-    ).fetch_arrow_table()
+    ).to_arrow_table()
 
     out: dict[int, dict[str, NDArray[Any]]] = {}
     if table.num_rows == 0:

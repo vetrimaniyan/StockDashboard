@@ -14,8 +14,38 @@ import duckdb
 from alpha500.providers.models import Candle, CorporateAction, Instrument
 
 
+_OHLCV_STAGE_COLUMNS = (
+    "instrument_token", "trade_date", "open", "high", "low", "close", "volume",
+    "traded_value", "vwap", "num_trades", "delivery_qty", "delivery_pct",
+    "source", "ingested_at",
+)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _stage_rows(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    columns: Sequence[str],
+    rows: Sequence[tuple],
+) -> None:
+    """Bulk-load rows into a temp table via Arrow.
+
+    Row-at-a-time ``executemany`` costs milliseconds per row in DuckDB, which
+    turns a 625k-row backfill into a long wait. Handing over one Arrow table
+    instead keeps the write proportional to the data rather than the row count.
+    """
+    import pyarrow as pa
+
+    arrays = list(zip(*rows)) if rows else [() for _ in columns]
+    arrow_table = pa.table({name: pa.array(values) for name, values in zip(columns, arrays)})
+    conn.register("_bulk_stage", arrow_table)
+    try:
+        conn.execute(f"CREATE OR REPLACE TEMP TABLE {table} AS SELECT * FROM _bulk_stage")
+    finally:
+        conn.unregister("_bulk_stage")
 
 
 def upsert_instruments(conn: duckdb.DuckDBPyConnection, instruments: Sequence[Instrument],
@@ -79,20 +109,7 @@ def upsert_candles(
     ]
     if not rows:
         return 0
-    conn.execute(
-        """
-        CREATE OR REPLACE TEMP TABLE _ohlcv_stage (
-            instrument_token BIGINT, trade_date DATE,
-            open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT,
-            traded_value DOUBLE, vwap DOUBLE, num_trades BIGINT,
-            delivery_qty BIGINT, delivery_pct DOUBLE,
-            source VARCHAR, ingested_at TIMESTAMP
-        )
-        """
-    )
-    conn.executemany(
-        "INSERT INTO _ohlcv_stage VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
-    )
+    _stage_rows(conn, "_ohlcv_stage", _OHLCV_STAGE_COLUMNS, rows)
     _merge_stage_into_ohlcv(conn)
     return len(rows)
 
@@ -115,18 +132,7 @@ def upsert_session_candles(
     ]
     if not rows:
         return 0
-    conn.execute(
-        """
-        CREATE OR REPLACE TEMP TABLE _ohlcv_stage (
-            instrument_token BIGINT, trade_date DATE,
-            open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT,
-            traded_value DOUBLE, vwap DOUBLE, num_trades BIGINT,
-            delivery_qty BIGINT, delivery_pct DOUBLE,
-            source VARCHAR, ingested_at TIMESTAMP
-        )
-        """
-    )
-    conn.executemany("INSERT INTO _ohlcv_stage VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    _stage_rows(conn, "_ohlcv_stage", _OHLCV_STAGE_COLUMNS, rows)
     _merge_stage_into_ohlcv(conn)
     return len(rows)
 
