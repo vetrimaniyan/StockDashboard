@@ -272,6 +272,52 @@ def get_dashboard(as_of: date | None = None) -> DashboardResponse:
     )
 
 
+@app.post("/api/export/{fmt}")
+def post_export(
+    fmt: str,
+    payload: dict[str, Any],
+    as_of: date | None = None,
+) -> dict[str, Any]:
+    """Export a screen to xlsx, csv or html (FR-9.1).
+
+    ``payload`` carries the screen definition and, optionally, the visible
+    column list — FR-9.2's "current view" scope.
+    """
+    from fastapi.responses import FileResponse  # noqa: F401  (documented response)
+
+    from alpha500 import exports
+
+    writers = {
+        "xlsx": exports.export_xlsx,
+        "csv": exports.export_csv,
+        "html": exports.export_html,
+    }
+    if fmt not in writers:
+        raise HTTPException(400, f"unsupported format: {fmt}")
+
+    definition = payload.get("definition") or {}
+    screen_name = str(payload.get("screen_name") or definition.get("name") or "Screen")
+    resolved = _resolve_as_of(as_of)
+
+    try:
+        with analytical(read_only=True) as conn:
+            rows = run_screen(conn, definition, resolved)
+    except ScreenDefinitionError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    columns = payload.get("columns") or (
+        ["tradingsymbol", "name", "sector", "close", *METRIC_COLUMNS]
+    )
+
+    path = writers[fmt](rows, columns, screen_name, definition, resolved)
+    return {
+        "path": str(path),
+        "filename": path.name,
+        "row_count": len(rows),
+        "data_as_of": str(resolved),
+    }
+
+
 @app.get("/api/stock/{symbol}", response_model=StockDetail)
 def get_stock(
     symbol: str,
