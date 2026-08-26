@@ -6,11 +6,13 @@ tool and market-data licensing does not permit redistribution.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import date, timedelta
-from typing import Any
+from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from alpha500 import risk
 from alpha500.api.schemas import (
@@ -45,11 +47,18 @@ from alpha500.screens.presets import (
     market_regime,
 )
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    init_databases()
+    yield
+
+
 app = FastAPI(
     title="Alpha-500",
     description="NSE momentum & swing-trading dashboard. Decision support only — "
                 "this application places no orders in any phase.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # The SPA runs on the Vite dev server during development; both are loopback.
@@ -61,15 +70,8 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-def _startup() -> None:
-    init_databases()
-
-
 @app.exception_handler(DatabaseBusyError)
-def _busy_handler(_request: Any, exc: DatabaseBusyError):  # type: ignore[no-untyped-def]
-    from fastapi.responses import JSONResponse
-
+async def _busy_handler(_request: Request, exc: DatabaseBusyError) -> JSONResponse:
     return JSONResponse(
         status_code=503,
         content={"detail": str(exc), "retry": True, "reason": "pipeline_running"},
@@ -283,8 +285,6 @@ def post_export(
     ``payload`` carries the screen definition and, optionally, the visible
     column list — FR-9.2's "current view" scope.
     """
-    from fastapi.responses import FileResponse  # noqa: F401  (documented response)
-
     from alpha500 import exports
 
     writers = {
