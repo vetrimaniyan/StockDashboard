@@ -104,7 +104,40 @@ def test_round_trip_cost_includes_every_component():
     out = risk.round_trip_cost_pct(expected_gain_pct=0.10, holding_days=30)
     assert out["frictions_pct"] > 0
     assert out["round_trip_cost_pct"] > out["frictions_pct"], "TDS must be included"
-    assert out["breakeven_move_pct"] > out["frictions_pct"]
+
+
+def test_breakeven_is_frictions_alone_not_inflated_by_tax():
+    """TDS is withheld on the gain, so it cannot raise the break-even point.
+
+    Below break-even there is no gain to withhold from. Conflating the two
+    made the UI show a round-trip cost larger than the move needed to clear
+    it, which reads as a contradiction.
+    """
+    out = risk.round_trip_cost_pct(expected_gain_pct=0.10, holding_days=30)
+    assert out["breakeven_move_pct"] == pytest.approx(out["frictions_pct"])
+    assert out["breakeven_move_pct"] < out["round_trip_cost_pct"]
+
+
+def test_breakeven_does_not_move_with_the_expected_gain():
+    """The threshold is a property of the frictions, not of the hoped-for win."""
+    small = risk.round_trip_cost_pct(0.02, 30)
+    large = risk.round_trip_cost_pct(0.50, 30)
+    assert small["breakeven_move_pct"] == pytest.approx(large["breakeven_move_pct"])
+    assert large["round_trip_cost_pct"] > small["round_trip_cost_pct"]
+
+
+def test_net_gain_is_what_is_left_after_costs_and_withholding():
+    out = risk.round_trip_cost_pct(0.10, holding_days=30)
+    assert out["net_gain_pct"] == pytest.approx(
+        0.10 - out["frictions_pct"] - out["tds_pct"]
+    )
+    assert out["net_gain_pct"] < 0.10
+
+
+def test_a_move_below_breakeven_yields_no_tax_and_no_net_gain():
+    out = risk.round_trip_cost_pct(0.0005, holding_days=30)
+    assert out["tds_pct"] == 0.0
+    assert out["net_gain_pct"] == 0.0
 
 
 def test_short_holding_uses_the_stcg_rate():
@@ -120,10 +153,15 @@ def test_long_holding_uses_the_ltcg_rate():
 
 
 def test_tax_drag_makes_short_holds_more_expensive():
-    """The whole point of the capital-velocity model in FR-12.4."""
+    """The whole point of the capital-velocity model in FR-12.4.
+
+    Frictions are identical either way; the withholding is what differs, so
+    the same gross win nets less on a short hold.
+    """
     short = risk.round_trip_cost_pct(0.10, holding_days=30)
     long = risk.round_trip_cost_pct(0.10, holding_days=400)
-    assert short["breakeven_move_pct"] > long["breakeven_move_pct"]
+    assert short["round_trip_cost_pct"] > long["round_trip_cost_pct"]
+    assert short["net_gain_pct"] < long["net_gain_pct"]
 
 
 def test_stt_is_charged_on_the_sell_side_only():

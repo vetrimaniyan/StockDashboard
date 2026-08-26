@@ -42,7 +42,9 @@ export const DEFAULT_COLUMNS = [
   'atr_pct_14',
   'rsi_14',
   'turnover_20d_median',
-  'sector',
+  // NSE's constituent file publishes a macro "Industry" and no finer sector,
+  // so that is the classification the grid and heatmap both use.
+  'industry',
 ]
 
 const STATIC_LABELS: Record<string, string> = {

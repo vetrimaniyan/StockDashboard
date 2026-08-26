@@ -122,10 +122,20 @@ def round_trip_cost_pct(
     holding_days: int = 30,
     model: CostModel | None = None,
 ) -> dict[str, float]:
-    """Break-even move required to clear all frictions (FR-12.5).
+    """All-in cost of a round trip, and the move needed to break even (FR-12.5).
 
-    Expressed so the UI can say "this trade must move X% before it is
-    profitable net of costs and withholding", next to the ATR stop distance.
+    Two different numbers, easy to conflate:
+
+    ``breakeven_move_pct`` is the gross move at which the trade stops losing
+    money. It equals the frictions alone — TDS is withheld on the *gain*, so
+    below break-even there is no gain to withhold from and tax cannot push the
+    threshold higher.
+
+    ``round_trip_cost_pct`` is the FR-12.5 sum: frictions plus the withholding
+    actually incurred on ``expected_gain_pct``. It scales with the size of the
+    win and is the figure to compare against a candidate's ATR-based target.
+
+    ``net_gain_pct`` is what the operator keeps.
     """
     m = model or CostModel()
 
@@ -142,17 +152,13 @@ def round_trip_cost_pct(
     taxable_gain = max(expected_gain_pct - frictions, 0.0)
     tds = taxable_gain * tax_rate
 
-    # Gross move g must satisfy: (g - frictions) * (1 - tax_rate) > 0, so
-    # break-even before tax is simply the friction total; the withholding then
-    # scales whatever remains.
-    breakeven = frictions / (1 - tax_rate) if tax_rate < 1 else frictions
-
     return {
         "frictions_pct": frictions,
         "tds_pct": tds,
         "tax_rate": tax_rate,
         "round_trip_cost_pct": frictions + tds,
-        "breakeven_move_pct": breakeven,
+        "breakeven_move_pct": frictions,
+        "net_gain_pct": max(expected_gain_pct - frictions - tds, 0.0),
     }
 
 

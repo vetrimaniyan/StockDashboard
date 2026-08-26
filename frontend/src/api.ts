@@ -99,8 +99,9 @@ export interface RiskSuggestion {
   quantity: number | null
   position_value: number | null
   exceeds_max_weight: boolean
-  round_trip_cost_pct: number | null
   breakeven_move_pct: number | null
+  round_trip_cost_pct: number | null
+  net_gain_at_target_pct: number | null
   cost_exceeds_atr_target: boolean
 }
 

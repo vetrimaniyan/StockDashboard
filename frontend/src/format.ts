@@ -122,7 +122,9 @@ export function byUnit(value: unknown, unit: string | undefined): string {
     case 'percent':
       return pct(v)
     case 'currency':
-      return currency(v)
+      // Turnover runs to hundreds of crores. Rendered in full it is a wall of
+      // digits nobody reads; prices stay exact because the paise matter.
+      return Math.abs(v) >= 1e5 ? currencyCompact(v) : currency(v)
     case 'integer':
       return count(v)
     case 'ratio':

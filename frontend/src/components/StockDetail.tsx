@@ -130,21 +130,25 @@ export function StockDetail({ symbol, definitions, onClose }: Props) {
                     note={risk.wider_stop ? `wider: ${risk.wider_stop}` : undefined}
                   />
                   <Stat
-                    label="Round-trip cost"
-                    value={pct(risk.round_trip_cost_pct)}
-                    note="incl. STT, GST, TDS"
-                  />
-                  <Stat
                     label="Break-even move"
                     value={pct(risk.breakeven_move_pct)}
-                    note="net of costs and withholding"
+                    note="frictions only — tax applies above this"
+                  />
+                  <Stat
+                    label="Cost of a 1R win"
+                    value={pct(risk.round_trip_cost_pct)}
+                    note={
+                      risk.net_gain_at_target_pct != null
+                        ? `you keep ${pct(risk.net_gain_at_target_pct)}`
+                        : 'frictions + TDS withheld'
+                    }
                     tone={risk.cost_exceeds_atr_target ? 'warn' : undefined}
                   />
                 </div>
                 {risk.cost_exceeds_atr_target && (
                   <p className="mx-3 mb-3 rounded border border-[var(--warn)] bg-[rgba(240,180,41,0.1)] p-2 text-[var(--warn)]">
-                    ⚠ The break-even move exceeds this candidate's ATR-based stop
-                    distance — a 1R win would not clear its own frictions.
+                    ⚠ Costs and withholding on a 1R win consume the whole ATR-based
+                    target — this candidate has no room to pay for itself.
                   </p>
                 )}
               </section>

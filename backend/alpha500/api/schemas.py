@@ -112,8 +112,12 @@ class RiskSuggestion(BaseModel):
     quantity: int | None = None
     position_value: float | None = None
     exceeds_max_weight: bool = False
-    round_trip_cost_pct: float | None = None
+    # breakeven is the frictions alone; round_trip_cost adds the withholding
+    # incurred on a 1R win. They are different questions and must not be
+    # presented as competing answers to the same one.
     breakeven_move_pct: float | None = None
+    round_trip_cost_pct: float | None = None
+    net_gain_at_target_pct: float | None = None
     cost_exceeds_atr_target: bool = False
 
 

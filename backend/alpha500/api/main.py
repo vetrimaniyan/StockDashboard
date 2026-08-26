@@ -407,13 +407,14 @@ def get_stock(
             risk_out.exceeds_max_weight = sized.exceeds_max_weight
 
     if stop.atr_stop_distance_pct:
-        # Target the same distance as the stop, i.e. a 1R move.
+        # Assume a 1R target, i.e. a win the same size as the stop distance.
         costs = risk.round_trip_cost_pct(stop.atr_stop_distance_pct)
         risk_out.round_trip_cost_pct = costs["round_trip_cost_pct"]
         risk_out.breakeven_move_pct = costs["breakeven_move_pct"]
+        risk_out.net_gain_at_target_pct = costs["net_gain_pct"]
         # FR-12.5: flag a candidate whose ATR target cannot clear its own costs.
         risk_out.cost_exceeds_atr_target = (
-            costs["breakeven_move_pct"] > stop.atr_stop_distance_pct
+            costs["round_trip_cost_pct"] >= stop.atr_stop_distance_pct
         )
 
     return StockDetail(
