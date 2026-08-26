@@ -57,6 +57,23 @@ def test_sma_window_three():
     assert out[2:].tolist() == pytest.approx([2.0, 3.0, 4.0])
 
 
+def test_sma_propagates_nulls_instead_of_treating_them_as_zero():
+    """A partially-null window is null, not a smaller average.
+
+    Regression: an all-null delivery series once averaged to 0.0, which reads
+    as a real measurement rather than missing data.
+    """
+    out = k.sma(arr(1, np.nan, 3, 4, 5), 3)
+    assert math.isnan(out[2])
+    assert math.isnan(out[3])
+    assert out[4] == pytest.approx(4.0)
+
+
+def test_sma_of_all_nulls_is_all_null():
+    out = k.sma(arr(np.nan, np.nan, np.nan, np.nan), 2)
+    assert np.isnan(out).all()
+
+
 def test_ema_span_three_seeded_with_sma():
     """span=3 -> alpha=0.5, seeded with mean(1,2,3)=2.
 

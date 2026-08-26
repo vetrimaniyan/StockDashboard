@@ -44,6 +44,13 @@ def to_yahoo_symbol(tradingsymbol: str) -> str:
 class YahooProvider(MarketDataProvider):
     name = "YAHOO"
 
+    # Established empirically by the FR-3.2 reconciliation test, not assumed:
+    # applying our own factor on top produced a +98.97% return on 360ONE's
+    # 2023-03-02 ex-date, which is the signature of double adjustment.
+    # Yahoo re-adjusts its whole history on every fetch, so a stored row stays
+    # correct only for splits up to the date it was fetched.
+    prices_are_adjusted = True
+
     def __init__(self, rate_per_s: float | None = None) -> None:
         self._bucket = TokenBucket(rate_per_s or settings.yahoo_rate_per_s)
 

@@ -87,6 +87,10 @@ def _f(value: str | None) -> float | None:
 class NseArchiveProvider(MarketDataProvider):
     name = "NSE_BHAVCOPY"
 
+    # The bhavcopy is the raw exchange print for that session and is never
+    # back-adjusted, so every split after a row's own trade date applies to it.
+    prices_are_adjusted = False
+
     def __init__(self, session: NseSession | None = None) -> None:
         self._session = session or NseSession()
 

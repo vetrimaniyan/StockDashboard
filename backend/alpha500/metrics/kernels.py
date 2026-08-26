@@ -52,12 +52,24 @@ def lagged_ratio(values: Floats, near: int, far: int) -> Floats:
 
 
 def sma(values: Floats, window: int) -> Floats:
+    """Simple moving average. Null if any value in the window is null.
+
+    Nulls must propagate rather than be treated as zero: a symbol with no
+    delivery data at all would otherwise report a delivery average of 0.0,
+    which reads as a real measurement and would make every such stock look
+    like it sits above its own average (FR-6.1, FR-2.7).
+    """
     n = values.size
     out = _empty_like(n)
     if window <= 0 or window > n:
         return out
-    cumsum = np.concatenate(([0.0], np.nancumsum(values)))
-    out[window - 1 :] = (cumsum[window:] - cumsum[:-window]) / window
+    finite = np.isfinite(values)
+    filled = np.where(finite, values, 0.0)
+    cumsum = np.concatenate(([0.0], np.cumsum(filled)))
+    counts = np.concatenate(([0.0], np.cumsum(finite.astype(np.float64))))
+    window_sum = cumsum[window:] - cumsum[:-window]
+    window_count = counts[window:] - counts[:-window]
+    out[window - 1 :] = np.where(window_count == window, window_sum / window, np.nan)
     return out
 
 

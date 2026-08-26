@@ -30,8 +30,22 @@ __all__ = [
     "SchemaDriftError",
     "YahooProvider",
     "get_provider",
+    "get_provider_adjustment_flags",
     "stable_token",
 ]
+
+
+def get_provider_adjustment_flags() -> dict[str, bool]:
+    """``{source_name: prices_are_adjusted}`` for every known provider.
+
+    The adjustment layer needs this to interpret stored rows, and reading it
+    off the provider classes keeps the fact in one place — next to the
+    reconciliation evidence that established it.
+    """
+    return {
+        cls.name: cls.prices_are_adjusted
+        for cls in (YahooProvider, NseArchiveProvider, CsvFileProvider)
+    }
 
 
 def get_provider(name: str, *, fixture_root: Path | str | None = None) -> MarketDataProvider:

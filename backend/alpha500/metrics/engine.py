@@ -64,7 +64,7 @@ def _load_prices(
     conn.execute("CREATE OR REPLACE TEMP TABLE _tok (instrument_token BIGINT)")
     conn.executemany("INSERT INTO _tok VALUES (?)", [(t,) for t in tokens])
 
-    frame = conn.execute(
+    table = conn.execute(
         """
         SELECT o.instrument_token, o.trade_date,
                o.open  * o.adj_factor AS open,
@@ -79,28 +79,27 @@ def _load_prices(
          ORDER BY o.instrument_token, o.trade_date
         """,
         [as_of],
-    ).arrow()
+    ).fetch_arrow_table()
 
-    import pyarrow.compute as pc
-
-    tokens_col = frame.column("instrument_token").to_numpy()
     out: dict[int, dict[str, NDArray[Any]]] = {}
-    if len(tokens_col) == 0:
+    if table.num_rows == 0:
         return out
 
+    tokens_col = table.column("instrument_token").to_numpy(zero_copy_only=False)
+    columns: dict[str, NDArray[Any]] = {
+        "trade_date": np.array(table.column("trade_date").to_pylist(), dtype=object)
+    }
+    for name in ("open", "high", "low", "close", "volume", "delivery_pct"):
+        columns[name] = table.column(name).to_numpy(zero_copy_only=False).astype(np.float64)
+
+    # Rows arrive grouped by token, so split on the boundaries rather than
+    # filtering the full table once per symbol.
     boundaries = np.flatnonzero(np.diff(tokens_col)) + 1
     starts = np.concatenate(([0], boundaries))
     ends = np.concatenate((boundaries, [len(tokens_col)]))
 
-    columns = {
-        name: frame.column(name).to_numpy(zero_copy_only=False)
-        for name in ("trade_date", "open", "high", "low", "close", "volume", "delivery_pct")
-    }
-    del pc
-
     for start, end in zip(starts, ends):
-        token = int(tokens_col[start])
-        out[token] = {
+        out[int(tokens_col[start])] = {
             name: values[start:end] for name, values in columns.items()
         }
     return out

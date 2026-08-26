@@ -73,6 +73,14 @@ class MarketDataProvider(ABC):
 
     name: str
 
+    #: Whether this source already back-adjusts its history for splits and
+    #: bonuses. FR-3.2 forbids assuming either way, so each provider declares
+    #: it and the reconciliation test proves the declaration correct.
+    #: Getting this wrong in either direction corrupts every derived metric:
+    #: too little adjustment leaves a spurious -50% return on the ex-date,
+    #: too much leaves a spurious +100% one.
+    prices_are_adjusted: bool = False
+
     @abstractmethod
     def list_instruments(self) -> Sequence[Instrument]:
         """Return the tradeable universe this provider knows about."""

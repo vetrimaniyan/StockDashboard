@@ -24,13 +24,24 @@ from alpha500.providers.models import ActionType
 
 def compute_adj_factors(
     trade_dates: NDArray[np.object_],
+    adjusted_through: NDArray[np.object_],
     actions: list[tuple[date, str, float | None, float | None]],
 ) -> NDArray[np.float64]:
-    """Cumulative adjustment factor for each date in ``trade_dates``.
+    """Cumulative adjustment factor per row.
 
-    A 1:2 split on date X means every price strictly before X must be halved,
-    so those dates carry factor 0.5 and dates from X onward carry 1.0. Multiple
-    events compound.
+    A 1:2 split on date X halves every price that predates X — but only if the
+    stored price does not already reflect it.
+
+    ``adjusted_through`` is the date up to which a row's source had already
+    applied corporate actions:
+
+    * a raw print (NSE bhavcopy) reflects nothing after its own session, so
+      this is the row's ``trade_date``;
+    * a back-adjusted feed (Yahoo) reflects every split known at fetch time,
+      so this is the fetch date and only later splits still apply.
+
+    Ignoring the distinction double-adjusts one source or under-adjusts the
+    other; both corrupt every downstream metric (FR-3.1).
     """
     factors = np.ones(len(trade_dates), dtype=np.float64)
     for ex_date, action_type, ratio_from, ratio_to in actions:
@@ -41,20 +52,34 @@ def compute_adj_factors(
         multiple = ratio_to / ratio_from
         if multiple <= 0 or abs(multiple - 1.0) < 1e-12:
             continue
-        before = np.array([d < ex_date for d in trade_dates], dtype=bool)
-        factors[before] /= multiple
+        pending = np.array(
+            [d < ex_date and known < ex_date
+             for d, known in zip(trade_dates, adjusted_through)],
+            dtype=bool,
+        )
+        factors[pending] /= multiple
     return factors
 
 
 def apply_adjustments(conn: duckdb.DuckDBPyConnection, instrument_token: int) -> int:
     """Recompute and persist ``adj_factor`` for one instrument."""
+    from alpha500.providers import get_provider_adjustment_flags
+
     rows = conn.execute(
-        "SELECT trade_date FROM ohlcv_daily WHERE instrument_token = ? ORDER BY trade_date",
+        """
+        SELECT trade_date, source, CAST(ingested_at AS DATE)
+          FROM ohlcv_daily WHERE instrument_token = ? ORDER BY trade_date
+        """,
         [instrument_token],
     ).fetchall()
     if not rows:
         return 0
+
+    pre_adjusted = get_provider_adjustment_flags()
     trade_dates = np.array([r[0] for r in rows], dtype=object)
+    adjusted_through = np.array(
+        [r[2] if pre_adjusted.get(r[1], False) else r[0] for r in rows], dtype=object
+    )
 
     actions = conn.execute(
         """
@@ -66,7 +91,7 @@ def apply_adjustments(conn: duckdb.DuckDBPyConnection, instrument_token: int) ->
         [instrument_token],
     ).fetchall()
 
-    factors = compute_adj_factors(trade_dates, actions)
+    factors = compute_adj_factors(trade_dates, adjusted_through, actions)
     conn.executemany(
         "UPDATE ohlcv_daily SET adj_factor = ? WHERE instrument_token = ? AND trade_date = ?",
         [(float(f), instrument_token, d) for f, d in zip(factors, trade_dates)],
