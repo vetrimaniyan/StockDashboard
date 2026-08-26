@@ -118,20 +118,65 @@ should not run concurrently with a served API in production.
 
 ---
 
-## D-7 — Backfill defaults to six years, not five
+## D-7 — Backfill stays at five years; acceptance criterion 1 is waived
 
-**Decision.** `alpha500 backfill` defaults to `--years 6`.
+**Decision.** `alpha500 backfill` defaults to `--years 5`, by operator
+decision on 2026-08-26.
 
-**Rationale.** FR-2.2 requires a minimum of 1 260 trading sessions and glosses
-that as "≈5 calendar years". NSE trades roughly 247 days a year, so five
-calendar years delivers about 1 236 sessions — just under the floor, and short
-of acceptance criterion 1 ("≥ 1 260 sessions for ≥ 495 of 500 constituents").
-Measured on the 2026-08-26 backfill: five years produced 1 236 index sessions
-and no symbol reached 1 260.
+**Context.** FR-2.2 requires a minimum of 1 260 trading sessions and glosses
+that as "≈5 calendar years". NSE actually trades roughly 247 days a year, so
+five calendar years delivers about 1 236 sessions. Measured on the 2026-08-26
+backfill: five years produced exactly 1 236 index sessions, and no symbol
+reached 1 260.
 
-Six years is the smallest whole number of years that clears the requirement.
-The SRS's session count is the binding constraint; its calendar-year gloss is
-approximate.
+**Consequence, accepted.** Acceptance criterion 1 ("≥ 1 260 sessions for ≥ 495
+of 500 constituents") does not pass as literally written. Nothing else is
+affected: every metric in section 5 needs at most 252 sessions, so the full
+metric set computes correctly on this history. The shortfall matters only for
+Phase 3 backtesting depth, which the SRS itself would rather see at 2 520
+sessions anyway.
+
+Pass `--years 6` to clear the criterion when Phase 3 begins.
+
+---
+
+## D-8 — Base detection amended: FR-6.14 as written cannot fire
+
+**Decision.** Two changes to `_detect_base`, keeping every constant the SRS
+specifies (0.75, 15%, 25%, 63 sessions, W=15):
+
+1. The ATR contraction reference is the **peak ATR of the preceding quarter**,
+   not "ATR at the start of the window".
+2. The prior advance is measured **directionally** — price entering the
+   consolidation versus the quarter's trough — not as the window's max over
+   its min.
+
+**Why change 1.** The literal test compares ATR today against ATR one window
+ago. Once a base is a full window old that reference sits inside the quiet
+period itself, the ratio drifts toward 1, and the condition extinguishes
+itself. Measured across 142 RS≥70 symbols, the literal form never held for
+more than **7 consecutive sessions**, which makes the Volatility Contraction
+preset's `base_length_days >= 10` (FR-7.5) unsatisfiable. The screen returned
+nothing, and always would have.
+
+Anchoring the reference at the start of each tight-range episode was tried and
+rejected: a steady advance is only ~8% deep over 15 sessions, so it already
+counts as "tight", episodes begin during the rally rather than after it, and
+the test degrades into "ATR is lower than it was a year ago". That produced
+331-session "bases".
+
+**Why change 2.** `max/min - 1` over the lookback is symmetric — it cannot
+distinguish a rally from a crash. A stock that fell 25% and went quiet near
+its low scored identically to one that rose 25% and paused near its high. On
+real data this filled the base list with dead stocks: RS ratings of 1 to 53,
+sitting at 1–45% of their 52-week range. This bug predates the amendment.
+
+**Measured outcome.** Longest base observed across 475 symbols over five
+years: 61 sessions, p90 episode length 17. Over the last 250 sessions the
+`base_length_days >= 10` condition is met on 126 of them, median 2 symbols,
+maximum 14. A screen for a genuinely rare setup that returns zero or one
+candidate on a given day is behaving correctly; one that never returns
+anything is broken.
 
 ---
 

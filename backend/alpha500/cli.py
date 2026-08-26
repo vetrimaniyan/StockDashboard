@@ -169,10 +169,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("universe", help="sync the NIFTY 500 constituent list")
 
     p_backfill = sub.add_parser("backfill", help="load bulk price history (explicit only)")
-    # FR-2.2 asks for >= 1260 sessions and calls that "approximately 5 calendar
-    # years". NSE trades roughly 247 days a year, so 5 years yields about 1236
-    # and misses the floor. 6 is the smallest whole number that clears it.
-    p_backfill.add_argument("--years", type=int, default=6)
+    # Five years by operator decision. Note this yields ~1236 sessions, just
+    # under FR-2.2's 1260 floor, because NSE trades ~247 days a year rather
+    # than the 252 the spec assumes. Pass --years 6 to clear it.
+    p_backfill.add_argument("--years", type=int, default=5)
     p_backfill.add_argument("--limit", type=int, default=None,
                             help="only the first N symbols, for a quick trial")
     p_backfill.add_argument("--force", action="store_true",

@@ -256,12 +256,26 @@ def _trend_template_partial(
 def _detect_base(
     high: Floats, low: Floats, atr_14: Floats, close: Floats
 ) -> tuple[NDArray[np.bool_], Floats, Floats, NDArray[np.bool_]]:
-    """Volatility-contraction base detection (FR-6.14).
+    """Volatility-contraction base detection (FR-6.14, with D-8 amendment).
 
-    Three conditions must hold together over the trailing window: a shallow
-    range, contracting ATR, and a prior advance. Contraction after a strong
-    advance is the setup that precedes clean breakouts, which is how the
-    dashboard surfaces candidates before the move rather than after it.
+    Three conditions: a shallow trailing range, ATR contracted against the
+    advance that preceded it, and that advance being at least 25%.
+
+    FR-6.14 specifies the contraction test as ``ATR_14 today < 0.75 x ATR_14 at
+    the start of the window``. Taken literally the reference slides forward
+    with the window, so once a base is a full window old the test compares the
+    quiet period against itself, the ratio drifts to 1, and the condition
+    extinguishes itself. Measured across 142 RS>=70 symbols, the literal form
+    never held for more than 7 consecutive sessions — which makes the
+    ``base_length_days >= 10`` requirement of the Volatility Contraction preset
+    (FR-7.5) unsatisfiable, and the screen returned nothing.
+
+    The reference here is the peak ATR of the preceding quarter instead. A
+    quarter is long enough that a consolidation cannot immediately drag its own
+    reference down, so a base can run for weeks; it still decays once the quiet
+    period fills the whole lookback, which is the right behaviour — a range
+    that has lasted a full quarter is no longer a contraction against anything.
+    Every constant the SRS specifies (0.75, 15%, 25%, 63 sessions) is kept.
     """
     n = close.size
     window = settings.base_window
@@ -277,36 +291,49 @@ def _detect_base(
     with np.errstate(divide="ignore", invalid="ignore"):
         depth = np.where(win_high > 0, (win_high - win_low) / win_high, np.nan)
 
-    atr_at_start = np.full(n, np.nan)
-    atr_at_start[window - 1 :] = atr_14[: n - window + 1]
+    tight = np.nan_to_num(depth <= 0.15, nan=False).astype(bool)
+
+    lead = window - 1
+    first_computable = lead + p.QUARTER
+
+    # Reference volatility: the peak ATR of the preceding quarter, excluding
+    # today. A quarter is long enough that a short consolidation cannot
+    # immediately drag its own reference down, unlike the one-window reference
+    # the SRS specifies, which a base extinguishes within about seven sessions.
+    #
+    # Anchoring the reference at the start of a tight-range episode was tried
+    # and rejected: a steady advance is only ~8% deep over 15 sessions, so it
+    # already counts as "tight", episodes begin during the rally, and the test
+    # degrades into "ATR is lower than it was a year ago".
+    prior_atr = np.full(n, np.nan)
+    prior_atr[1:] = atr_14[:-1]
+    atr_reference = k.rolling_max(prior_atr, p.QUARTER)
     with np.errstate(invalid="ignore"):
-        contracting = atr_14 < 0.75 * atr_at_start
+        contracting = atr_14 < 0.75 * atr_reference
 
     # Prior advance of >= 25% within the 63 sessions preceding the window.
-    prior_advance = np.full(n, False)
-    lead = window - 1
-    for i in range(lead + p.QUARTER, n):
-        seg_end = i - lead
-        seg_start = max(0, seg_end - p.QUARTER)
-        seg = close[seg_start : seg_end + 1]
-        seg_min = np.nanmin(seg)
-        if np.isfinite(seg_min) and seg_min > 0:
-            prior_advance[i] = (np.nanmax(seg) / seg_min - 1.0) >= 0.25
+    #
+    # Measured directionally, as the gain from the quarter's trough up to the
+    # price entering the consolidation. The obvious formulation — the window's
+    # max over its min — is symmetric and cannot tell a rally from a crash: a
+    # stock that fell 25% and went quiet near its low scores identically to one
+    # that rose 25% and paused near its high. That admitted dead stocks as
+    # "bases" and was what the Volatility Contraction screen actually surfaced.
+    run_low = k.rolling_min(close, p.QUARTER)
+    advance = np.full(n, np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(run_low > 0, close / run_low - 1.0, np.nan)
+    if n > lead:
+        advance[lead:] = ratio[: n - lead]
+    prior_advance = np.nan_to_num(advance >= 0.25, nan=False).astype(bool)
 
-    with np.errstate(invalid="ignore"):
-        in_base = (depth <= 0.15) & contracting & prior_advance
-    in_base = np.nan_to_num(in_base, nan=False).astype(bool)
+    if n > first_computable:
+        valid[first_computable:] = True
+    valid &= np.isfinite(depth) & np.isfinite(atr_reference) & np.isfinite(advance)
 
-    # The prior-advance leg needs a full quarter behind the window, so before
-    # that point the result is "not yet computable", not "condition not met".
-    valid = np.zeros(n, dtype=bool)
-    if n > lead + p.QUARTER:
-        valid[lead + p.QUARTER :] = True
-    valid &= np.isfinite(depth) & np.isfinite(atr_at_start)
-    in_base &= valid
-    length[~valid] = np.nan
+    in_base = tight & contracting & prior_advance & valid
 
-    # base_length_days: consecutive sessions the condition has held.
+    # base_length_days: consecutive sessions the full condition has held.
     run = 0
     for i in range(n):
         if not valid[i]:

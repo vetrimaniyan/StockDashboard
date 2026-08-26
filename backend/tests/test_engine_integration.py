@@ -153,6 +153,100 @@ def test_boolean_metrics_are_null_not_false_during_warm_up(conn, universe):
         )
 
 
+def test_base_can_persist_long_enough_for_the_preset_to_fire(conn, universe):
+    """FR-6.14 as written is self-extinguishing; see DECISIONS.md D-8.
+
+    The literal contraction test compares ATR to ATR one window ago. Once a
+    base is a full window old that reference sits inside the quiet period, the
+    ratio drifts to 1, and the condition kills itself. Measured on real data
+    it never held beyond 7 consecutive sessions, which makes the Volatility
+    Contraction preset's ``base_length_days >= 10`` unsatisfiable.
+
+    Anchoring the reference to the advance that preceded the consolidation
+    lets the base run as long as it genuinely stays quiet.
+    """
+    import numpy as np
+
+    from alpha500.metrics.series import compute_series_metrics
+    from tests.conftest import synth_series, trading_days
+
+    # A steep advance, then a quiet consolidation. The advance has to stay
+    # inside the 63-session lookback that precedes the window, so the base
+    # cannot be arbitrarily long — a range that has held for a full quarter is
+    # no longer contracting against a recent move.
+    dates = trading_days(360)
+    advance = synth_series(dates[:330], 100, 0.005)
+    last_close = advance[-1][4]
+    base = [
+        (day, last_close, last_close * 1.002, last_close * 0.998, last_close, 400_000)
+        for day in dates[330:]
+    ]
+    rows = advance + base
+
+    computed = compute_series_metrics(
+        trade_date=np.array(dates, dtype=object),
+        open_=np.array([r[1] for r in rows], dtype=np.float64),
+        high=np.array([r[2] for r in rows], dtype=np.float64),
+        low=np.array([r[3] for r in rows], dtype=np.float64),
+        close=np.array([r[4] for r in rows], dtype=np.float64),
+        volume=np.array([r[5] for r in rows], dtype=np.float64),
+    )
+
+    assert computed.columns["is_in_base"][-1] is True
+    length = computed.columns["base_length_days"][-1]
+    assert length >= 10, f"base ran only {length} sessions; the preset needs 10"
+
+
+def _base_flag(rows, dates):  # type: ignore[no-untyped-def]
+    import numpy as np
+
+    from alpha500.metrics.series import compute_series_metrics
+
+    computed = compute_series_metrics(
+        trade_date=np.array(dates, dtype=object),
+        open_=np.array([r[1] for r in rows], dtype=np.float64),
+        high=np.array([r[2] for r in rows], dtype=np.float64),
+        low=np.array([r[3] for r in rows], dtype=np.float64),
+        close=np.array([r[4] for r in rows], dtype=np.float64),
+        volume=np.array([r[5] for r in rows], dtype=np.float64),
+    )
+    return computed.columns["is_in_base"][-1]
+
+
+def _quiet_tail(last_close, days):  # type: ignore[no-untyped-def]
+    return [
+        (day, last_close, last_close * 1.002, last_close * 0.998, last_close, 400_000)
+        for day in days
+    ]
+
+
+def test_base_requires_a_prior_advance(conn, universe):
+    """A quiet stock that never rallied is not a base — it is just dormant."""
+    from tests.conftest import trading_days
+
+    dates = trading_days(360)
+    rows = [(d, 100.0, 100.2, 99.8, 100.0, 400_000) for d in dates]
+    assert _base_flag(rows, dates) is False
+
+
+def test_a_crash_followed_by_quiet_is_not_a_base(conn, universe):
+    """The advance must be directional, not merely a 25% range.
+
+    Regression: measuring the lookback's max over its min is symmetric, so a
+    stock that fell 25% and went quiet near its low scored exactly like one
+    that rose 25% and paused near its high. On real data that filled the
+    Volatility Contraction screen with dead stocks — RS ratings of 1 to 53,
+    sitting at 1-45% of their 52-week range.
+    """
+    from tests.conftest import synth_series, trading_days
+
+    dates = trading_days(360)
+    decline = synth_series(dates[:330], 500, -0.005)
+    rows = decline + _quiet_tail(decline[-1][4], dates[330:])
+
+    assert _base_flag(rows, dates) is False
+
+
 def test_recomputation_is_deterministic(conn, universe):
     """Acceptance criterion 5, and AR-4.
 

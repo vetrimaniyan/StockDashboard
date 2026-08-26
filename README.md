@@ -70,10 +70,11 @@ roughly 45 minutes for the full universe at the configured rate limit:
 .venv/Scripts/python -m alpha500.cli backfill
 ```
 
-The default is six years, not five. FR-2.2 asks for at least 1 260 trading
-sessions and describes that as "approximately 5 calendar years", but NSE trades
-around 247 days a year, so five years yields roughly 1 236 sessions and misses
-the floor — and with it acceptance criterion 1.
+The default is five years, which yields about 1 236 sessions — just under
+FR-2.2's 1 260 floor, because NSE trades around 247 days a year rather than
+the 252 the spec assumes. Every section 5 metric needs at most 252 sessions,
+so this is sufficient for Phase 1; pass `--years 6` when Phase 3 backtesting
+needs the extra depth. See DECISIONS.md, D-7.
 
 Verify the corporate-action reconciliation gate passes (a release gate,
 NFR-5.4):
