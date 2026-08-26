@@ -118,6 +118,23 @@ should not run concurrently with a served API in production.
 
 ---
 
+## D-7 — Backfill defaults to six years, not five
+
+**Decision.** `alpha500 backfill` defaults to `--years 6`.
+
+**Rationale.** FR-2.2 requires a minimum of 1 260 trading sessions and glosses
+that as "≈5 calendar years". NSE trades roughly 247 days a year, so five
+calendar years delivers about 1 236 sessions — just under the floor, and short
+of acceptance criterion 1 ("≥ 1 260 sessions for ≥ 495 of 500 constituents").
+Measured on the 2026-08-26 backfill: five years produced 1 236 index sessions
+and no symbol reached 1 260.
+
+Six years is the smallest whole number of years that clears the requirement.
+The SRS's session count is the binding constraint; its calendar-year gloss is
+approximate.
+
+---
+
 ## Open items still outstanding
 
 | # | Item | Status |

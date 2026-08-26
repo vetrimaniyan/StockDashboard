@@ -63,12 +63,17 @@ Sync the NIFTY 500 constituent list:
 .venv/Scripts/python -m alpha500.cli universe
 ```
 
-Load five years of history. This is deliberately never automatic (FR-2.5) and
-takes roughly 45 minutes for the full universe at the configured rate limit:
+Load price history. This is deliberately never automatic (FR-2.5) and takes
+roughly 45 minutes for the full universe at the configured rate limit:
 
 ```bash
-.venv/Scripts/python -m alpha500.cli backfill --years 5
+.venv/Scripts/python -m alpha500.cli backfill
 ```
+
+The default is six years, not five. FR-2.2 asks for at least 1 260 trading
+sessions and describes that as "approximately 5 calendar years", but NSE trades
+around 247 days a year, so five years yields roughly 1 236 sessions and misses
+the floor — and with it acceptance criterion 1.
 
 Verify the corporate-action reconciliation gate passes (a release gate,
 NFR-5.4):
