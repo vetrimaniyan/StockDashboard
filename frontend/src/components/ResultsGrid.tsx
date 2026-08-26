@@ -20,6 +20,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { MetricDefinition, ScreenRow } from '../api'
 import { byUnit, directionClass, arrow, EM_DASH, isBlank } from '../format'
+import { CardList } from './CardList'
 import { ColumnPicker } from './ColumnPicker'
 
 const ROW_HEIGHT = 30
@@ -101,11 +102,26 @@ function heatStyle(value: unknown, min: number, max: number): React.CSSPropertie
   }
 }
 
+/** FR-8.12: the grid degrades to cards below 768px. */
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  )
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 767px)')
+    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  return narrow
+}
+
 export function ResultsGrid({ rows, definitions, storageKey, onSelect }: Props) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [visible, setVisible] = useState<string[]>(() => loadColumns(storageKey))
   const [pickerOpen, setPickerOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const isNarrow = useIsNarrow()
 
   useEffect(() => {
     setVisible(loadColumns(storageKey))
@@ -233,6 +249,10 @@ export function ResultsGrid({ rows, definitions, storageKey, onSelect }: Props) 
   const paddingBottom = items.length
     ? virtualizer.getTotalSize() - items[items.length - 1].end
     : 0
+
+  if (isNarrow) {
+    return <CardList rows={rows} onSelect={onSelect} />
+  }
 
   return (
     <div className="flex flex-col h-full min-h-0">
