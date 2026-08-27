@@ -103,6 +103,24 @@ Start the API (binds to 127.0.0.1 only, per NFR-4.1):
 .venv/Scripts/python -m alpha500.cli serve
 ```
 
+Or serve *and* run the nightly pipeline unattended in the same process, which
+is what §2.1 means by in-process APScheduler and what makes the DuckDB
+single-writer constraint tractable (DECISIONS.md, D-6):
+
+```bash
+.venv/Scripts/python -m alpha500.cli serve --with-scheduler
+```
+
+The default slot is 18:45 IST — NSE finalises the bhavcopy after post-close
+processing, and running earlier risks ingesting provisional data (FR-5.1).
+Override with `--at HH:MM`, always in IST regardless of the host's timezone.
+The next fire time is printed at startup, so an armed schedule is verifiable
+rather than assumed.
+
+Note for a host outside India: `TZ=Asia/Kolkata date` under Git Bash on Windows
+does not apply the timezone and silently reports UTC. Use Python's `zoneinfo`
+to check IST — that is what the scheduler itself uses.
+
 Start the UI in a second terminal, then open http://localhost:5173:
 
 ```bash
