@@ -126,6 +126,16 @@ CREATE TABLE IF NOT EXISTS trading_calendar (
     description        VARCHAR
 );
 
+-- Which build of the metric engine produced each date's metrics. AR-4's
+-- reproducibility guarantee only means something if the served numbers came
+-- from the code that is actually in the tree.
+CREATE TABLE IF NOT EXISTS metrics_meta (
+    trade_date         DATE PRIMARY KEY,
+    engine_fingerprint VARCHAR NOT NULL,
+    computed_at        TIMESTAMP NOT NULL,
+    row_count          INTEGER NOT NULL
+);
+
 -- FR-4.1 V5: rows failing a Warn check are quarantined rather than published.
 CREATE TABLE IF NOT EXISTS quarantined_rows (
     instrument_token   BIGINT NOT NULL,

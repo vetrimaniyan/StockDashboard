@@ -30,7 +30,11 @@ export function StatusBar({ status }: { status: DataStatus | null }) {
       }`}
     >
       <span className="font-medium">
-        {stale ? '⚠ Data is stale' : '● Data current'}
+        {status.engine_stale
+          ? '⚠ Metrics out of date with the engine'
+          : stale
+            ? '⚠ Data is stale'
+            : '● Data current'}
       </span>
       <span>
         as of <strong>{formatDate(status.data_as_of)}</strong>

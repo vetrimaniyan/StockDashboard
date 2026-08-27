@@ -22,6 +22,10 @@ class DataStatus(BaseModel):
     reason: str | None = None
     last_run_status: str | None = None
     last_run_at: str | None = None
+    # True when metrics_daily was produced by a since-edited metric engine.
+    # Numbers no current version of the code would produce still render
+    # perfectly; only this says so.
+    engine_stale: bool = False
 
 
 class MarketRegime(BaseModel):

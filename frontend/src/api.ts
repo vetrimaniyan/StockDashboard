@@ -7,6 +7,7 @@ export interface DataStatus {
   reason: string | null
   last_run_status: string | null
   last_run_at: string | null
+  engine_stale: boolean
 }
 
 export interface MarketRegime {

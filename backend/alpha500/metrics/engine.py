@@ -9,7 +9,7 @@ across runs given the same history.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Sequence
 
 import duckdb
@@ -19,6 +19,7 @@ from numpy.typing import NDArray
 from alpha500.config import settings
 from alpha500.metrics import cross_section as xs
 from alpha500.metrics import periods as p
+from alpha500.metrics.fingerprint import engine_fingerprint
 from alpha500.metrics.series import SeriesMetrics, compute_series_metrics
 
 # Column order for the metrics_daily write. Kept explicit so a schema change
@@ -309,5 +310,12 @@ def _write_metrics(
     conn.execute("DELETE FROM metrics_daily WHERE trade_date = ?", [as_of])
     conn.executemany(
         f"INSERT INTO metrics_daily ({columns}) VALUES ({placeholders})", rows
+    )
+
+    # Stamp which build produced these numbers, so serving metrics from a
+    # since-edited engine is detectable rather than silent.
+    conn.execute(
+        "INSERT OR REPLACE INTO metrics_meta VALUES (?,?,?,?)",
+        [as_of, engine_fingerprint(), datetime.now(timezone.utc), len(rows)],
     )
     return len(rows)

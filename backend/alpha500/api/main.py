@@ -7,8 +7,9 @@ tool and market-data licensing does not permit redistribution.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, AsyncIterator
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +38,7 @@ from alpha500.db.connection import (
 )
 from alpha500.metrics import registry
 from alpha500.metrics.engine import METRIC_COLUMNS
+from alpha500.metrics.fingerprint import engine_fingerprint
 from alpha500.mktcal import calendar as cal
 from alpha500.screens.filter_engine import ScreenDefinitionError, run_screen
 from alpha500.screens.presets import (
@@ -46,6 +48,12 @@ from alpha500.screens.presets import (
     get_preset,
     market_regime,
 )
+
+IST = ZoneInfo("Asia/Kolkata")
+# The pipeline's scheduled slot (FR-5.1). Before this, today's EOD data does
+# not yet exist upstream and its absence is not a fault.
+PUBLISH_CUTOFF_IST = time(18, 45)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -81,12 +89,39 @@ async def _busy_handler(_request: Request, exc: DatabaseBusyError) -> JSONRespon
 # --- shared helpers ------------------------------------------------------
 
 
+def _expected_session(conn: Any, now: datetime | None = None) -> date:
+    """The most recent session whose EOD data could plausibly be published.
+
+    NSE finalises the bhavcopy after post-close processing, which is why the
+    pipeline is scheduled for 18:45 IST (FR-5.1). Treating today's session as
+    "expected" before then would mark the dashboard stale every trading
+    morning — and a staleness warning that fires daily by design is one the
+    operator learns to ignore, which defeats FR-8.9.
+    """
+    now = now or datetime.now(IST)
+    today = now.date()
+    latest = cal.previous_trading_day(conn, today + timedelta(days=1))
+    if latest == today and now.time() < PUBLISH_CUTOFF_IST:
+        return cal.previous_trading_day(conn, today)
+    return latest
+
+
 def _data_status() -> DataStatus:
     """FR-8.9: the staleness indicator carries a reason, not just a date."""
     with analytical(read_only=True) as conn:
         row = conn.execute("SELECT max(trade_date) FROM metrics_daily").fetchone()
         data_as_of = row[0] if row else None
-        expected = cal.previous_trading_day(conn, date.today() + timedelta(days=1))
+        expected = _expected_session(conn)
+
+        stamped = conn.execute(
+            "SELECT engine_fingerprint FROM metrics_meta WHERE trade_date = ?",
+            [data_as_of],
+        ).fetchone() if data_as_of else None
+
+    # A fingerprint that predates the current engine means the served numbers
+    # came from code no longer in the tree.
+    engine_stale = bool(stamped) and stamped[0] != engine_fingerprint()
+    unstamped = data_as_of is not None and not stamped
 
     last_status: str | None = None
     last_at: str | None = None
@@ -116,9 +151,21 @@ def _data_status() -> DataStatus:
                 f"{data_as_of}. Pipeline has not yet run for that session."
             )
 
+    if engine_stale or unstamped:
+        engine_note = (
+            "Metrics were computed by a different build of the metric engine "
+            "than the one now installed. Run 'alpha500 rebuild' — until then "
+            "these rankings are not reproducible from the current code."
+            if engine_stale
+            else "Metrics predate engine-version stamping; run 'alpha500 rebuild'."
+        )
+        reason = f"{reason} {engine_note}" if reason else engine_note
+
     return DataStatus(
-        data_as_of=data_as_of, latest_session=expected, is_stale=stale,
+        data_as_of=data_as_of, latest_session=expected,
+        is_stale=stale or engine_stale or unstamped,
         reason=reason, last_run_status=last_status, last_run_at=last_at,
+        engine_stale=engine_stale or unstamped,
     )
 
 

@@ -247,6 +247,45 @@ def test_a_crash_followed_by_quiet_is_not_a_base(conn, universe):
     assert _base_flag(rows, dates) is False
 
 
+def test_metrics_are_stamped_with_the_engine_build(conn, universe):
+    """AR-4 reproducibility is only meaningful if the code matches the numbers.
+
+    Editing the engine without recomputing leaves metrics_daily holding values
+    no current version of the code would produce. Everything still renders and
+    the rankings are simply wrong, so the stamp is what makes it detectable.
+    """
+    from alpha500.metrics.fingerprint import engine_fingerprint
+
+    as_of = universe[-1]
+    compute_metrics_for_date(conn, as_of, "NIFTY500")
+
+    row = conn.execute(
+        "SELECT engine_fingerprint, row_count FROM metrics_meta WHERE trade_date = ?",
+        [as_of],
+    ).fetchone()
+    assert row is not None, "metrics were written without an engine stamp"
+    assert row[0] == engine_fingerprint()
+    assert row[1] == 6
+
+
+def test_engine_fingerprint_tracks_source_changes(tmp_path):
+    """The digest must actually move when the engine's source moves."""
+    from alpha500.metrics import fingerprint as fp
+
+    original = fp.engine_fingerprint()
+    assert original == fp.engine_fingerprint(), "fingerprint must be stable"
+
+    target = fp._DIR / "kernels.py"
+    saved = target.read_bytes()
+    try:
+        target.write_bytes(saved + b"\n# provoke a change\n")
+        assert fp.engine_fingerprint() != original
+    finally:
+        target.write_bytes(saved)
+
+    assert fp.engine_fingerprint() == original
+
+
 def test_recomputation_is_deterministic(conn, universe):
     """Acceptance criterion 5, and AR-4.
 
