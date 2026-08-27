@@ -127,6 +127,27 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_materialise(args: argparse.Namespace) -> int:
+    """Compute metrics across history so a backtest has point-in-time inputs."""
+    from alpha500.metrics.history import materialise_history
+
+    init_databases()
+    started = time.monotonic()
+    with analytical() as conn:
+        bounds = conn.execute(
+            "SELECT min(trade_date), max(trade_date) FROM ohlcv_daily"
+        ).fetchone()
+        if bounds is None or bounds[0] is None:
+            print("No price history stored. Run 'alpha500 backfill' first.")
+            return 1
+        start = _parse_date(args.start) or bounds[0]
+        end = _parse_date(args.end) or bounds[1]
+        rows = materialise_history(conn, start, end, progress=lambda m: print(f"  {m}"))
+    elapsed = time.monotonic() - started
+    print(f"Materialised {rows:,} metric rows for {start}..{end} in {elapsed:.1f}s")
+    return 0
+
+
 def cmd_reconcile(_args: argparse.Namespace) -> int:
     """FR-3.2 reconciliation — a release gate (NFR-5.4)."""
     with analytical(read_only=True) as conn:
@@ -214,6 +235,12 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("reconcile", help="run the corporate-action reconciliation gate")
 
+    p_hist = sub.add_parser(
+        "materialise", help="compute metrics for every session in a range (Phase 3)"
+    )
+    p_hist.add_argument("--from", dest="start", default=None, metavar="YYYY-MM-DD")
+    p_hist.add_argument("--to", dest="end", default=None, metavar="YYYY-MM-DD")
+
     p_serve = sub.add_parser("serve", help="start the API")
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)
@@ -234,6 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "init": cmd_init, "universe": cmd_universe, "backfill": cmd_backfill,
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
+        "materialise": cmd_materialise,
         "reconcile": cmd_reconcile, "serve": cmd_serve,
     }
     return handlers[args.command](args)
