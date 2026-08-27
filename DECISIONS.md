@@ -207,10 +207,25 @@ correction — the only proper bear phase in the window — cannot be tested at 
 on two corrections rather than three, and neither is a full bear market. That
 is thin evidence on which to judge a screen designed for corrective regimes.
 
-**Recommendation, not yet actioned.** Re-run `alpha500 backfill --years 8`
-before drawing further regime conclusions. It costs one rate-limited backfill
-and a re-materialise; it buys a genuine drawdown regime to test against. The
-decision remains the operator's.
+**Actioned 2026-08-27.** `alpha500 backfill --years 8` ran in 518.7s and the
+re-materialise in 566.2s, giving 1,984 sessions and 841,019 metric rows from
+2018-08-17. The first eligible session moved from 2022-08-19 to 2019-08-30, and
+testable corrections went from two to six — including the 2020 COVID crash at
+−38.3%, the deepest drawdown in the record.
+
+It was worth the 18 minutes. The same screen, unchanged, moved from 2.43% to
+14.46% net CAGR: the five-year window had been too short and started at an
+unrepresentative point, and the earlier conclusion drawn from it was wrong.
+See `docs/backtest-findings.md`.
+
+**Follow-on finding.** Acceptance criterion 1 is structurally unachievable, not
+merely unmet. 398 of 500 symbols now carry ≥1 260 sessions; the 102 that do not
+are genuine recent listings (ICICIAMC 2025-12-19, MEESHO 2025-12-10, PINELABS
+2025-11-14 and others). A current-constituent universe necessarily contains
+recent IPOs, so no backfill depth satisfies it. The SRS's own clause — "with
+the shortfall symbols named and explained" — is the resolution, and this is
+that explanation. D-7's waiver stands, for a better reason than the one it
+originally gave.
 
 ---
 
