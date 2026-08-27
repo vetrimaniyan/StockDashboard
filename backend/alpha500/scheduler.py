@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from alpha500.config import settings
 from alpha500.db.connection import analytical
 from alpha500.mktcal import calendar as cal
 from alpha500.pipeline.runner import Pipeline
@@ -53,7 +54,10 @@ def run_pipeline_if_trading_day() -> None:
         log.info("pipeline %s complete, data as of %s", result.run_id, result.data_as_of)
 
 
-def build_scheduler(hour: int = 18, minute: int = 45) -> BackgroundScheduler:
+def build_scheduler(hour: int | None = None, minute: int | None = None) -> BackgroundScheduler:
+    hour = settings.pipeline_hour if hour is None else hour
+    minute = settings.pipeline_minute if minute is None else minute
+
     scheduler = BackgroundScheduler(timezone=IST)
     scheduler.add_job(
         run_pipeline_if_trading_day,

@@ -111,10 +111,24 @@ the API is a reader, so they cannot both hold the file.
 `reason: "pipeline_running"` — visible and explicable rather than a generic
 server error.
 
-**Intended resolution.** The SRS specifies APScheduler **in-process**
-(§2.1), which resolves this: one process holds the connection and serves the
-API. The CLI's separate-process pipeline is a development convenience and
-should not run concurrently with a served API in production.
+**Resolved 2026-08-27.** The SRS specifies APScheduler **in-process** (§2.1),
+and that is now implemented — but it needed more than just co-locating them.
+
+DuckDB refuses to mix access modes *within* a process too, not only across
+processes: opening read-write while any read-only connection is alive raises
+`ConnectionException`. So `serve --with-scheduler` would have started cleanly,
+served all day, and then failed at 18:45 on the first night — silently, unless
+someone read the log. Verified by direct experiment before it could happen.
+
+Every caller now takes a cursor off one shared per-process connection.
+`configure_process_connection(read_only=...)` fixes the mode at startup:
+`serve --with-scheduler` holds it read-write so the pipeline can write; a plain
+`serve` holds it read-only, leaving the file available to other readers. A read
+attempted while a *separate* process writes still surfaces as HTTP 503 with
+`reason: "pipeline_running"`.
+
+The CLI's separate-process pipeline remains a development convenience and
+should not run concurrently with a served API.
 
 ---
 

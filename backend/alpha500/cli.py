@@ -10,7 +10,11 @@ from datetime import date, datetime
 
 from alpha500.config import settings
 from alpha500.db import store
-from alpha500.db.connection import analytical, init_databases
+from alpha500.db.connection import (
+    analytical,
+    configure_process_connection,
+    init_databases,
+)
 from alpha500.mktcal import calendar as cal
 from alpha500.pipeline import ingest
 from alpha500.pipeline.adjust import reconcile_adjustments
@@ -30,6 +34,14 @@ def _progress(label: str, done: int, total: int) -> None:
 
 def _parse_date(text: str | None) -> date | None:
     return datetime.strptime(text, "%Y-%m-%d").date() if text else None
+
+
+def _parse_hhmm(text: str | None) -> tuple[int | None, int | None]:
+    """Parse ``HH:MM``; None means fall back to the configured schedule."""
+    if not text:
+        return None, None
+    parsed = datetime.strptime(text, "%H:%M")
+    return parsed.hour, parsed.minute
 
 
 def cmd_init(_args: argparse.Namespace) -> int:
@@ -142,12 +154,26 @@ def cmd_serve(args: argparse.Namespace) -> int:
             "  has no authentication. Bind to 127.0.0.1 unless you are certain.\n"
         )
 
-    if args.with_scheduler:
-        from alpha500.scheduler import build_scheduler
+    # With the scheduler in-process the pipeline writes through this same
+    # connection, so the process must hold the store read-write. Without it,
+    # read-only leaves the file available to other readers.
+    configure_process_connection(read_only=not args.with_scheduler)
 
-        scheduler = build_scheduler()
+    if args.with_scheduler:
+        from alpha500.scheduler import PIPELINE_JOB_ID, build_scheduler
+
+        hour, minute = _parse_hhmm(args.at)
+        scheduler = build_scheduler(hour, minute)
         scheduler.start()
-        print("  Scheduler started — EOD pipeline runs 18:45 IST on trading days.")
+        job = scheduler.get_job(PIPELINE_JOB_ID)
+        print(
+            f"  Scheduler started — EOD pipeline runs "
+            f"{hour if hour is not None else settings.pipeline_hour:02d}:"
+            f"{minute if minute is not None else settings.pipeline_minute:02d} IST "
+            "on trading days."
+        )
+        if job is not None:
+            print(f"  Next run: {job.next_run_time}")
 
     uvicorn.run(
         "alpha500.api.main:app",
@@ -195,7 +221,13 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument(
         "--with-scheduler",
         action="store_true",
-        help="run the 18:45 IST EOD pipeline in-process (FR-5.1)",
+        help="run the nightly EOD pipeline in-process (FR-5.1)",
+    )
+    p_serve.add_argument(
+        "--at",
+        default=None,
+        metavar="HH:MM",
+        help="scheduler time in IST (default 18:45, after NSE publishes)",
     )
 
     args = parser.parse_args(argv)

@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"  # NFR-4.1
     api_port: int = 8000
 
+    # --- Scheduler (FR-5.1) ----------------------------------------------
+    # 18:45 IST by default: NSE publishes the final bhavcopy after post-close
+    # processing, and running earlier risks ingesting provisional data.
+    pipeline_hour: int = 18
+    pipeline_minute: int = 45
+
     # --- Optional Kite (unused by default) -------------------------------
     kite_api_key: str | None = Field(default=None, repr=False)
     kite_api_secret: str | None = Field(default=None, repr=False)
