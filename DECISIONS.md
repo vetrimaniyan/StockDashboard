@@ -194,6 +194,26 @@ anything is broken.
 
 ---
 
+## D-9 — Five years of history is now the binding constraint on backtesting
+
+**Context.** D-7 waived the 1 260-session floor and kept the backfill at five
+years. Phase 3 has now made the cost of that visible: eligibility needs 252
+sessions of history, so with data starting 2021-08-16 the first session
+carrying any eligible stock is **2022-08-19**. Backtests over the nominal
+five-year range trade nothing for their first year, and the February–July 2022
+correction — the only proper bear phase in the window — cannot be tested at all.
+
+**Consequence.** Every regime conclusion in `docs/backtest-findings.md` rests
+on two corrections rather than three, and neither is a full bear market. That
+is thin evidence on which to judge a screen designed for corrective regimes.
+
+**Recommendation, not yet actioned.** Re-run `alpha500 backfill --years 8`
+before drawing further regime conclusions. It costs one rate-limited backfill
+and a re-materialise; it buys a genuine drawdown regime to test against. The
+decision remains the operator's.
+
+---
+
 ## Open items still outstanding
 
 | # | Item | Status |
