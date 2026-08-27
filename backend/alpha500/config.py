@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"  # NFR-4.1
     api_port: int = 8000
 
+    # --- Pullback & reversal (FR-14) --------------------------------------
+    support_tolerance_pct: float = 0.03   # "at" support, FR-14.2
+    pullback_min_pct: float = 0.03        # shallower than this is noise
+    pullback_max_pct: float = 0.25        # deeper than this is a broken trend
+    reversal_min_score: int = 2           # of five checks, FR-14.4
+    reversal_volume_ratio: float = 1.2    # participation check R5
+
     # --- Scheduler (FR-5.1) ----------------------------------------------
     # 18:45 IST by default: NSE publishes the final bhavcopy after post-close
     # processing, and running earlier risks ingesting provisional data.

@@ -53,13 +53,19 @@ def compute_series_metrics(
     # --- returns (5.2) ---------------------------------------------------
     cols["ret_1d"] = k.shift_ratio(close, p.DAY)
     cols["ret_1w"] = k.shift_ratio(close, p.WEEK)
+    cols["ret_2w"] = k.shift_ratio(close, p.TWO_WEEKS)
+    cols["ret_3w"] = k.shift_ratio(close, p.THREE_WEEKS)
     cols["ret_1m"] = k.shift_ratio(close, p.MONTH)
+    cols["ret_2m"] = k.shift_ratio(close, p.TWO_MONTHS)
     cols["ret_3m"] = k.shift_ratio(close, p.QUARTER)
     cols["ret_6m"] = k.shift_ratio(close, p.HALF_YEAR)
     cols["ret_9m"] = k.shift_ratio(close, p.NINE_MONTHS)
     cols["ret_12m"] = k.shift_ratio(close, p.YEAR)
     # FR-6.2: skips the most recent month; this is the return the composite uses.
     cols["ret_12m_1m"] = k.lagged_ratio(close, near=p.MONTH, far=p.YEAR)
+    # FR-13.1: the return earned *across* the interval three-to-two months ago,
+    # which is a different question from ret_2m's lookback to a single point.
+    cols["ret_3m_2m"] = k.lagged_ratio(close, near=p.TWO_MONTHS, far=p.QUARTER)
 
     # --- moving averages (5.9) ------------------------------------------
     sma_20 = k.sma(close, 20)
@@ -187,9 +193,122 @@ def compute_series_metrics(
 
     cols["history_days"] = np.arange(1, n + 1, dtype=np.float64)
     # Carried so the cross-sectional pass has the adjusted close to hand.
+    # --- support and reversal (FR-14) ------------------------------------
+    _support_and_reversal(
+        cols, open_=open_, high=high, low=low, close=close,
+        ema_21=cols["ema_21"], sma_50=sma_50, sma_200=sma_200,
+        rsi_14=cols["rsi_14"], macd_hist=macd_hist, rel_volume=rel_volume,
+    )
+
     cols["close_adj"] = close
 
     return SeriesMetrics(trade_date=trade_date, close=close, columns=cols)
+
+
+def _support_and_reversal(
+    cols: dict[str, NDArray[Any]],
+    *,
+    open_: Floats,
+    high: Floats,
+    low: Floats,
+    close: Floats,
+    ema_21: Floats,
+    sma_50: Floats,
+    sma_200: Floats,
+    rsi_14: Floats,
+    macd_hist: Floats,
+    rel_volume: Floats,
+) -> None:
+    """Pullback to support with reversal confirmation (FR-14).
+
+    Distinct from FR-6.15's ``is_pullback``, which is a *continuation* filter:
+    it demands a perfect 8/8 trend template and a neutral RSI, and asks for no
+    evidence the pullback has actually stopped. This asks the opposite question
+    — price is at a level buyers previously defended, and something has turned.
+    A stock can satisfy either without the other.
+    """
+    n = close.size
+
+    swing = k.swing_lows(low, reach=3)
+    support = k.nearest_support(
+        close, [sma_50, ema_21], lookback=p.QUARTER, low=low, swing=swing
+    )
+    cols["support_level"] = support
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        distance = np.where(support > 0, close / support - 1.0, np.nan)
+    cols["support_distance_pct"] = distance
+    distance_known = np.isfinite(distance)
+    at_support_flag = np.zeros(n, dtype=bool)
+    np.less_equal(
+        distance, settings.support_tolerance_pct,
+        out=at_support_flag, where=distance_known,
+    )
+    cols["is_at_support"] = _tristate(distance_known, at_support_flag)
+
+    # Pullback measured off the recent high, so a stock that never rose is not
+    # counted as having pulled back from anything.
+    recent_high = k.rolling_max(high, p.MONTH)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        pullback = np.where(recent_high > 0, close / recent_high - 1.0, np.nan)
+    cols["pullback_from_high_pct"] = pullback
+    depth_ok = np.isfinite(pullback) & (
+        (-pullback >= settings.pullback_min_pct) & (-pullback <= settings.pullback_max_pct)
+    )
+
+    # --- the five reversal checks (FR-14.4) ------------------------------
+    def prev(values: Floats, lag: int = 1) -> Floats:
+        out = np.full(n, np.nan)
+        if n > lag:
+            out[lag:] = values[:-lag]
+        return out
+
+    rsi_prev = prev(rsi_14)
+    was_oversold = np.zeros(n, dtype=bool)
+    for i in range(n):
+        window = rsi_14[max(0, i - p.WEEK + 1) : i + 1]
+        finite = window[np.isfinite(window)]
+        was_oversold[i] = bool(finite.size and finite.min() <= 45.0)
+    r1 = np.isfinite(rsi_14) & np.isfinite(rsi_prev) & (rsi_14 > rsi_prev) & was_oversold
+
+    hist_1, hist_2 = prev(macd_hist), prev(macd_hist, 2)
+    r2 = (
+        np.isfinite(macd_hist) & np.isfinite(hist_1) & np.isfinite(hist_2)
+        & (macd_hist > hist_1) & (hist_1 > hist_2)
+    )
+
+    ema_prev, close_prev = prev(ema_21), prev(close)
+    r3 = (
+        np.isfinite(close) & np.isfinite(ema_21) & np.isfinite(close_prev) & np.isfinite(ema_prev)
+        & (close > ema_21) & (close_prev <= ema_prev)
+    )
+
+    span = high - low
+    with np.errstate(divide="ignore", invalid="ignore"):
+        close_position = np.where(span > 0, (close - low) / span, np.nan)
+    r4 = np.isfinite(close_position) & (close > open_) & (close_position >= 0.66)
+
+    r5 = (
+        np.isfinite(rel_volume) & np.isfinite(close_prev)
+        & (close > close_prev) & (rel_volume >= settings.reversal_volume_ratio)
+    )
+
+    score = (
+        r1.astype(np.int64) + r2.astype(np.int64) + r3.astype(np.int64)
+        + r4.astype(np.int64) + r5.astype(np.int64)
+    )
+    # The score needs a full RSI and MACD history to mean anything; before that
+    # it is "not yet computable", not "no reversal" (FR-6.1).
+    computable = np.isfinite(rsi_14) & np.isfinite(macd_hist) & np.isfinite(ema_21)
+    cols["reversal_score"] = np.where(computable, score, np.nan)
+    reversal_flag = score >= settings.reversal_min_score
+    cols["is_reversal"] = _tristate(computable, reversal_flag)
+
+    # FR-14.5: an uptrend must still be intact, or this is a falling knife
+    # rather than a pullback. Long-only (FR-12.2) makes that asymmetry real.
+    uptrend = np.isfinite(sma_200) & (close > sma_200)
+    combined = at_support_flag & depth_ok & reversal_flag & uptrend
+    cols["is_pullback_reversal"] = _tristate(computable & distance_known, combined)
 
 
 def _bool(mask: NDArray[np.bool_], *inputs: Floats) -> NDArray[Any]:
@@ -343,3 +462,16 @@ def _detect_base(
         length[i] = float(run)
 
     return in_base, depth, length, valid
+
+
+def _tristate(valid: NDArray[np.bool_], value: NDArray[np.bool_]) -> NDArray[Any]:
+    """True / False / None, as an object array.
+
+    FR-6.1 draws a hard line between "the condition does not hold" and "there
+    is not enough history to say". A plain bool array cannot express the
+    second, and defaulting it to False would quietly assert the first.
+    """
+    out = np.empty(value.size, dtype=object)
+    for i in range(value.size):
+        out[i] = bool(value[i]) if valid[i] else None
+    return out

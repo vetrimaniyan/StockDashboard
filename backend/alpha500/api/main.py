@@ -45,6 +45,7 @@ from alpha500.mktcal import calendar as cal
 from alpha500.screens.filter_engine import ScreenDefinitionError, run_screen
 from alpha500.screens.presets import (
     MOMENTUM_BREAKDOWN,
+    PULLBACK_REVERSAL,
     PRESETS,
     breadth,
     get_preset,
@@ -268,6 +269,8 @@ def get_dashboard(as_of: date | None = None) -> DashboardResponse:
         # FR-7.6: exit signals appear above the entry candidates, always.
         exits = run_screen(conn, get_preset(MOMENTUM_BREAKDOWN), resolved)[:15]
         leaders = run_screen(conn, get_preset("Momentum Leaders"), resolved)[:10]
+        # FR-14.6: the preset already carries the ordering and the limit of 10.
+        reversals = run_screen(conn, get_preset(PULLBACK_REVERSAL), resolved)
 
         sectors = conn.execute(
             """
@@ -296,6 +299,7 @@ def get_dashboard(as_of: date | None = None) -> DashboardResponse:
         breadth=Breadth(**breadth_data),
         exit_signals=exits,
         momentum_leaders=leaders,
+        pullback_reversals=reversals,
         sector_heatmap=[
             SectorPerformance(
                 sector=r[0],

@@ -58,6 +58,7 @@ export interface DashboardResponse {
   breadth: Breadth
   exit_signals: ScreenRow[]
   momentum_leaders: ScreenRow[]
+  pullback_reversals: ScreenRow[]
   sector_heatmap: SectorPerformance[]
   universe_changes: UniverseChange[]
   presets: PresetSummary[]

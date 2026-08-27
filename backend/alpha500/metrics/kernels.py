@@ -378,3 +378,60 @@ def dense_rank_desc(values: Floats) -> NDArray[np.float64]:
     lookup = {v: i + 1 for i, v in enumerate(uniq)}
     out[finite] = np.array([lookup[v] for v in subset], dtype=np.float64)
     return out
+
+
+def swing_lows(low: Floats, reach: int = 3) -> NDArray[np.bool_]:
+    """Fractal swing lows: a strict minimum of the window centred on each bar.
+
+    A bar qualifies only when its low is below every low within ``reach``
+    sessions on *both* sides. The final ``reach`` bars therefore never qualify —
+    their right-hand window has not happened yet. That is deliberate: confirming
+    a low before the market has confirmed it is look-ahead, and a support level
+    built from unconfirmed lows would be one the operator could not have traded.
+    """
+    n = low.size
+    out = np.zeros(n, dtype=bool)
+    if n < 2 * reach + 1:
+        return out
+    for i in range(reach, n - reach):
+        centre = low[i]
+        if not np.isfinite(centre):
+            continue
+        window = low[i - reach : i + reach + 1]
+        if not np.all(np.isfinite(window)):
+            continue
+        # Strict against the rest of the window, so a flat run yields no low.
+        if centre < np.min(np.delete(window, reach)):
+            out[i] = True
+    return out
+
+
+def nearest_support(
+    close: Floats, candidates: list[Floats], lookback: int, low: Floats,
+    swing: NDArray[np.bool_],
+) -> Floats:
+    """Highest support candidate at or below the close (FR-14.2).
+
+    Candidates are confirmed swing lows within ``lookback`` sessions plus any
+    supplied level series (moving averages). Null where nothing sits below the
+    close — a stock at a new high has no support beneath it, and inventing one
+    would place a stop where no buyer has ever appeared.
+    """
+    n = close.size
+    out = _empty_like(n)
+    for i in range(n):
+        price = close[i]
+        if not np.isfinite(price):
+            continue
+        best = -np.inf
+        start = max(0, i - lookback + 1)
+        for j in range(start, i + 1):
+            if swing[j] and np.isfinite(low[j]) and low[j] <= price:
+                best = max(best, low[j])
+        for series in candidates:
+            level = series[i]
+            if np.isfinite(level) and level <= price:
+                best = max(best, level)
+        if best > -np.inf and best > 0:
+            out[i] = best
+    return out

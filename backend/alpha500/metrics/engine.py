@@ -25,7 +25,8 @@ from alpha500.metrics.series import SeriesMetrics, compute_series_metrics
 # Column order for the metrics_daily write. Kept explicit so a schema change
 # cannot silently shift values into the wrong column.
 METRIC_COLUMNS: tuple[str, ...] = (
-    "ret_1d", "ret_1w", "ret_1m", "ret_3m", "ret_6m", "ret_9m", "ret_12m", "ret_12m_1m",
+    "ret_1d", "ret_1w", "ret_2w", "ret_3w", "ret_1m", "ret_2m",
+    "ret_3m", "ret_3m_2m", "ret_6m", "ret_9m", "ret_12m", "ret_12m_1m",
     "rs_1m", "rs_3m", "rs_6m", "rs_12m", "rs_rating",
     "sma_20", "sma_50", "sma_100", "sma_150", "sma_200", "ema_21", "ema_50",
     "sma_200_slope_1m", "ma_alignment",
@@ -37,6 +38,9 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "rsi_14", "adx_14", "macd", "macd_signal", "macd_hist",
     "is_52w_high_breakout", "is_n_day_breakout_20", "is_n_day_breakout_50",
     "is_in_base", "base_depth_pct", "base_length_days",
+    "support_level", "support_distance_pct", "is_at_support",
+    "pullback_from_high_pct", "reversal_score", "is_reversal",
+    "is_pullback_reversal",
     "is_trend_template", "trend_template_score", "is_pullback", "gap_disqualified",
     "history_days", "is_eligible",
 )
@@ -45,12 +49,14 @@ _INT_COLUMNS = frozenset(
     {
         "rs_rating", "days_since_52w_high", "momentum_rank", "vol_sma_20", "vol_sma_50",
         "base_length_days", "trend_template_score", "history_days",
+        "reversal_score",
     }
 )
 _BOOL_COLUMNS = frozenset(
     {
         "ma_alignment", "is_52w_high_breakout", "is_n_day_breakout_20",
         "is_n_day_breakout_50", "is_in_base", "is_trend_template", "is_pullback",
+        "is_at_support", "is_reversal", "is_pullback_reversal",
         "gap_disqualified", "is_eligible",
     }
 )

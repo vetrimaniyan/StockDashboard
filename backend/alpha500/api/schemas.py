@@ -117,6 +117,8 @@ class DashboardResponse(BaseModel):
     breadth: Breadth
     exit_signals: list[dict[str, Any]]
     momentum_leaders: list[dict[str, Any]]
+    # FR-14.6: pullbacks to support showing reversal confirmation.
+    pullback_reversals: list[dict[str, Any]]
     sector_heatmap: list[SectorPerformance]
     universe_changes: list[UniverseChange]
     presets: list[PresetSummary]

@@ -179,6 +179,63 @@ export function Dashboard({ data, onSelect, onOpenScreen }: Props) {
         />
       </Panel>
 
+      {/* FR-14.6: pullbacks to support with reversal confirmation. FR-14.7
+          requires this to be distinguishable from the "Pullback to Support"
+          preset, which is a continuation filter and a different setup. */}
+      <Panel
+        title="Pullback + reversal"
+        subtitle="Top 10 pulled back to a support level and showing reversal confirmation, uptrend intact. Distinct from the Pullback to Support preset, which finds continuation setups inside a perfect trend template."
+        action={
+          <button
+            className="px-2 py-1 rounded border border-[var(--border)] hover:border-[var(--accent)]"
+            onClick={() => onOpenScreen('Pullback + Reversal')}
+          >
+            Open screen
+          </button>
+        }
+      >
+        <MiniTable
+          rows={data.pullback_reversals}
+          onSelect={onSelect}
+          empty="No stock is at support with reversal confirmation this session."
+          columns={[
+            {
+              key: 'close',
+              label: 'Close',
+              render: (r) => currency(r.close as number),
+            },
+            {
+              key: 'support',
+              label: 'Support',
+              render: (r) => currency(r.support_level as number),
+            },
+            {
+              key: 'dist',
+              label: 'To support',
+              render: (r) => signedPct(r.support_distance_pct as number),
+            },
+            {
+              key: 'pullback',
+              label: 'Pullback',
+              render: (r) => signedPct(r.pullback_from_high_pct as number),
+            },
+            {
+              key: 'rev',
+              label: 'Reversal',
+              render: (r) =>
+                r.reversal_score == null ? (
+                  <span className="text-[var(--muted)]">{EM_DASH}</span>
+                ) : (
+                  <span title="RSI turning up, MACD improving, reclaimed 21 EMA, close in top third of range, volume confirmation">
+                    {num(r.reversal_score as number, 0)}/5
+                  </span>
+                ),
+            },
+            { key: 'rs', label: 'RS', render: (r) => num(r.rs_rating as number, 0) },
+          ]}
+        />
+      </Panel>
+
       <div className="grid gap-3 lg:grid-cols-2">
         <Panel
           title="Momentum leaders"

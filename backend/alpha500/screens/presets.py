@@ -15,6 +15,10 @@ from alpha500.screens.filter_engine import run_screen
 # with equal or greater prominence is a deliberate counterweight.
 MOMENTUM_BREAKDOWN: Final[str] = "Momentum Breakdown"
 
+# FR-14.7: named so it cannot be confused with "Pullback to Support", which is
+# a different setup rather than a variant of this one.
+PULLBACK_REVERSAL: Final[str] = "Pullback + Reversal"
+
 PRESETS: Final[dict[str, dict[str, Any]]] = {
     "Momentum Leaders": {
         "name": "Momentum Leaders",
@@ -87,6 +91,36 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
         },
         "sort": [{"field": "momentum_score", "direction": "desc"}],
         "limit": 50,
+    },
+    # FR-14.6. Deliberately distinct from "Pullback to Support" above, which is
+    # a continuation filter: it demands a perfect 8/8 trend template and a
+    # neutral RSI, and asks for no evidence the pullback has actually stopped.
+    # This asks the opposite question - price is at a level buyers previously
+    # defended, and something has turned. FR-14.7 requires the UI to say so.
+    PULLBACK_REVERSAL: {
+        "name": PULLBACK_REVERSAL,
+        "version": 1,
+        "description": (
+            "Pulled back to a support level and showing reversal confirmation, "
+            "with the long-term uptrend intact."
+        ),
+        "universe": {"index": settings.index_name, "exclude_ineligible": True},
+        "filters": {
+            "op": "AND",
+            "conditions": [
+                {"field": "is_pullback_reversal", "operator": "=", "value": True}
+            ],
+        },
+        # FR-14.6: lexicographic and fully deterministic including ties (AR-4).
+        # A weighted composite would need cross-sectional z-scores and would
+        # hide which factor drove any given rank.
+        "sort": [
+            {"field": "reversal_score", "direction": "desc"},
+            {"field": "rs_rating", "direction": "desc"},
+            {"field": "support_distance_pct", "direction": "asc"},
+            {"field": "instrument_token", "direction": "asc"},
+        ],
+        "limit": 10,
     },
     MOMENTUM_BREAKDOWN: {
         "name": MOMENTUM_BREAKDOWN,

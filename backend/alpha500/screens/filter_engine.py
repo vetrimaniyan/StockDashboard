@@ -20,7 +20,14 @@ import duckdb
 from alpha500.metrics.engine import METRIC_COLUMNS
 
 INSTRUMENT_FIELDS: Final[frozenset[str]] = frozenset(
-    {"tradingsymbol", "name", "isin", "series", "industry", "sector", "basic_industry"}
+    {
+        "tradingsymbol", "name", "isin", "series", "industry", "sector",
+        "basic_industry",
+        # Not a screening criterion, but AR-4 requires deterministic ordering:
+        # any "top N" needs a final tie-break that cannot vary between runs,
+        # and the primary key is the only field guaranteed unique.
+        "instrument_token",
+    }
 )
 PRICE_FIELDS: Final[frozenset[str]] = frozenset(
     {"close", "open", "high", "low", "volume", "delivery_pct", "traded_value"}

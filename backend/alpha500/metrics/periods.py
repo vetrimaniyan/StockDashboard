@@ -10,7 +10,10 @@ from typing import Final
 
 DAY: Final = 1
 WEEK: Final = 5
+TWO_WEEKS: Final = 10
+THREE_WEEKS: Final = 15
 MONTH: Final = 21
+TWO_MONTHS: Final = 42
 QUARTER: Final = 63
 HALF_YEAR: Final = 126
 NINE_MONTHS: Final = 189

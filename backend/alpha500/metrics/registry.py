@@ -37,8 +37,20 @@ REGISTRY: Final[tuple[MetricDef, ...]] = (
        "Latest session's price change.", "Returns", "percent", True),
     _m("ret_1w", "1-week return", "C_0 / C_5 - 1",
        "Return over the last 5 trading sessions.", "Returns", "percent", True),
+    _m("ret_2w", "2-week return", "C_0 / C_10 - 1",
+       "Return over the last 10 trading sessions.", "Returns", "percent", True),
+    _m("ret_3w", "3-week return", "C_0 / C_15 - 1",
+       "Return over the last 15 trading sessions.", "Returns", "percent", True),
     _m("ret_1m", "1-month return", "C_0 / C_21 - 1",
        "Return over the last 21 trading sessions.", "Returns", "percent", True),
+    _m("ret_2m", "2-month return", "C_0 / C_42 - 1",
+       "Return over the last 42 trading sessions. A lookback to a single point "
+       "42 sessions ago - not to be confused with ret_3m_2m, which measures an "
+       "interval.", "Returns", "percent", True),
+    _m("ret_3m_2m", "2-to-3-month return", "C_42 / C_63 - 1",
+       "Return earned *across* the interval from 63 sessions ago to 42 sessions "
+       "ago. Answers 'how did it do during that month', where ret_2m answers "
+       "'how far is it above where it stood then'.", "Returns", "percent", True),
     _m("ret_3m", "3-month return", "C_0 / C_63 - 1",
        "Return over the last 63 trading sessions.", "Returns", "percent", True),
     _m("ret_6m", "6-month return", "C_0 / C_126 - 1",
@@ -202,6 +214,29 @@ REGISTRY: Final[tuple[MetricDef, ...]] = (
        "Tightness of the consolidation.", "Patterns", "percent", False),
     _m("base_length_days", "Base length", "consecutive sessions the base has held",
        "How long the contraction has persisted.", "Patterns", "integer", True),
+    _m("support_level", "Support level",
+       "highest confirmed swing low, sma_50 or ema_21 at or below C_0",
+       "Nearest level beneath price where buyers previously appeared. Null at a "
+       "new high, where nothing sits below.", "Patterns", "currency", True),
+    _m("support_distance_pct", "Distance to support", "C_0 / support_level - 1",
+       "How far price sits above its nearest support.", "Patterns", "percent", True),
+    _m("is_at_support", "At support", "support_distance_pct <= 3%",
+       "Price is within the tolerance band of its support level.",
+       "Patterns", "boolean", True),
+    _m("pullback_from_high_pct", "Pullback depth",
+       "C_0 / max(High over 21 sessions) - 1",
+       "How far price has retraced from its recent high.", "Patterns", "percent", True),
+    _m("reversal_score", "Reversal score", "count of 5 checks: R1..R5",
+       "RSI turning up from oversold, MACD histogram improving, price reclaiming "
+       "ema_21, a close in the top third of the bar's range, and volume "
+       "confirmation. 0-5.", "Patterns", "integer", True),
+    _m("is_reversal", "Reversal", "reversal_score >= 2",
+       "At least two independent reversal checks agree.",
+       "Patterns", "boolean", True),
+    _m("is_pullback_reversal", "Pullback + reversal",
+       "at support AND pullback 3-25% AND reversal AND C_0 > sma_200",
+       "Pulled back to a support level and showing confirmation the pullback has "
+       "stopped, with the long-term uptrend intact.", "Patterns", "boolean", True),
     _m("is_pullback", "Pullback",
        "trend template AND within 3% of ema_21 or sma_50 AND ret_1w < 0 AND RSI 40-55",
        "Pullback within an established uptrend.", "Patterns", "boolean", True),

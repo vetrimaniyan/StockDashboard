@@ -123,5 +123,42 @@ def init_databases() -> None:
     if _shared_read_only is not True:
         with analytical() as conn:
             conn.execute(_read_sql("schema.sql"))
+            _migrate_metric_columns(conn)
     with app() as conn:
         conn.executescript(_read_sql("schema_app.sql"))
+
+
+def _migrate_metric_columns(conn: duckdb.DuckDBPyConnection) -> None:
+    """Add metric columns that a newer engine expects but the file predates.
+
+    ``CREATE TABLE IF NOT EXISTS`` is a no-op once the table exists, so a
+    schema change would otherwise be invisible to any store that already holds
+    data — and the first write would fail on a column nobody had added. The
+    materialised history is hours of rate-limited fetching; migrating in place
+    beats rebuilding it.
+
+    Values stay NULL until the next recompute, which the engine fingerprint in
+    ``metrics_meta`` already surfaces as staleness.
+    """
+    from alpha500.metrics.engine import (
+        _BOOL_COLUMNS,
+        _INT_COLUMNS,
+        METRIC_COLUMNS,
+    )
+
+    existing = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'metrics_daily'"
+        ).fetchall()
+    }
+    for name in METRIC_COLUMNS:
+        if name in existing:
+            continue
+        sql_type = (
+            "BOOLEAN" if name in _BOOL_COLUMNS
+            else "BIGINT" if name in _INT_COLUMNS
+            else "DOUBLE"
+        )
+        conn.execute(f"ALTER TABLE metrics_daily ADD COLUMN {name} {sql_type}")
