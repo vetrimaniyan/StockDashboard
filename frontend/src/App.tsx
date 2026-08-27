@@ -7,12 +7,13 @@ import {
   type PresetSummary,
   type ScreenResponse,
 } from './api'
+import { Backtest } from './components/Backtest'
 import { Dashboard } from './components/Dashboard'
 import { Screener } from './components/Screener'
 import { StatusBar } from './components/StatusBar'
 import { StockDetail } from './components/StockDetail'
 
-type View = 'dashboard' | 'screener'
+type View = 'dashboard' | 'screener' | 'backtest'
 
 export default function App() {
   const [view, setView] = useState<View>('dashboard')
@@ -69,7 +70,7 @@ export default function App() {
         </div>
 
         <nav className="flex gap-1 ml-4">
-          {(['dashboard', 'screener'] as View[]).map((v) => (
+          {(['dashboard', 'screener', 'backtest'] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -117,6 +118,8 @@ export default function App() {
           ) : (
             !error && <div className="p-8 text-[var(--muted)]">Loading dashboard…</div>
           ))}
+
+        {view === 'backtest' && <Backtest presets={presets} />}
 
         {view === 'screener' && (
           <Screener

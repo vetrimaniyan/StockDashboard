@@ -8,6 +8,32 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class BacktestRequest(BaseModel):
+    screen_name: str = "Momentum Leaders"
+    start: date | None = None
+    end: date | None = None
+    initial_capital: float = 1_000_000.0
+    max_positions: int = 10
+    stop_atr_multiple: float = 3.0
+    trailing_stop: bool = False
+    use_exit_screen: bool = True
+    slippage_pct: float = 0.0015
+    # When set, the stop multiple is swept over these values and the result
+    # is judged for a narrow peak rather than a plateau.
+    sweep: list[float] | None = None
+    walk_forward: bool = False
+
+
+class BacktestAvailability(BaseModel):
+    """Whether history is materialised deeply enough to back a simulation."""
+
+    ready: bool
+    sessions: int
+    start: date | None
+    end: date | None
+    reason: str | None = None
+
+
 class DataStatus(BaseModel):
     """FR-8.9: staleness must be loud, and must carry a reason.
 

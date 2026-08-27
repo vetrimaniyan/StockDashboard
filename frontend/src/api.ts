@@ -164,6 +164,13 @@ export const api = {
     }),
   stock: (symbol: string) =>
     request<StockDetail>(`/api/stock/${encodeURIComponent(symbol)}`),
+  backtestAvailability: () =>
+    request<BacktestAvailability>('/api/backtest/availability'),
+  backtest: (params: BacktestParams) =>
+    request<BacktestResponse>('/api/backtest', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    }),
   exportScreen: (
     fmt: 'xlsx' | 'csv' | 'html',
     payload: { screen_name: string; definition: Record<string, unknown>; columns?: string[] },
@@ -172,4 +179,126 @@ export const api = {
       `/api/export/${fmt}`,
       { method: 'POST', body: JSON.stringify(payload) },
     ),
+}
+
+export interface BacktestAvailability {
+  ready: boolean
+  sessions: number
+  start: string | null
+  end: string | null
+  reason: string | null
+}
+
+export interface BacktestPerformance {
+  final_equity: number
+  total_return_pct: number
+  cagr_pct: number
+  max_drawdown_pct: number
+  max_drawdown_days: number
+  sharpe: number | null
+  sortino: number | null
+  volatility_pct: number | null
+}
+
+export interface BacktestTradeStats {
+  trades: number
+  winners: number
+  losers: number
+  hit_rate_pct: number | null
+  avg_win_pct: number | null
+  avg_loss_pct: number | null
+  win_loss_ratio: number | null
+  avg_holding_days: number | null
+  median_holding_days: number | null
+  exposure_pct: number | null
+  total_costs: number
+  total_tds: number
+}
+
+export interface BacktestTrade {
+  symbol: string
+  entry_date: string
+  entry_price: number
+  quantity: number
+  exit_date: string | null
+  exit_price: number | null
+  exit_reason: string | null
+  holding_days: number
+  gross_pnl: number
+  costs: number
+  tds: number
+  net_pnl: number
+  net_return_pct: number
+}
+
+export interface SweepPointResult {
+  value: number
+  metric: number
+  trades: number
+  max_drawdown_pct: number
+  sharpe: number | null
+}
+
+export interface SweepResult {
+  best_value: number | null
+  best_metric: number
+  is_narrow_peak: boolean
+  plateau_width: number
+  warning: string | null
+  points: SweepPointResult[]
+}
+
+export interface WalkForwardWindow {
+  train_start: string
+  train_end: string
+  test_start: string
+  test_end: string
+  chosen_value: number
+  in_sample_cagr: number
+  out_of_sample_cagr: number
+  out_of_sample_trades: number
+  narrow_peak: boolean
+}
+
+export interface WalkForwardResult {
+  windows: WalkForwardWindow[]
+  in_sample_cagr: number | null
+  out_of_sample_cagr: number | null
+  degradation_pct: number | null
+  warning: string | null
+}
+
+export interface BacktestBenchmark {
+  index_name: string
+  cagr_pct: number
+  total_return_pct: number
+  max_drawdown_pct: number
+  curve: { date: string; close: number }[]
+}
+
+export interface BacktestResponse {
+  gross_of_tax: BacktestPerformance
+  net_of_tax: BacktestPerformance
+  trades: BacktestTradeStats
+  sessions: number
+  start: string | null
+  end: string | null
+  warnings: string[]
+  trades_detail: BacktestTrade[]
+  equity_curve: { date: string; gross: number; net: number }[]
+  benchmark: BacktestBenchmark | null
+  config: Record<string, unknown>
+  sweep?: SweepResult
+  walk_forward?: WalkForwardResult
+}
+
+export interface BacktestParams {
+  screen_name: string
+  stop_atr_multiple: number
+  trailing_stop: boolean
+  use_exit_screen: boolean
+  max_positions: number
+  initial_capital: number
+  sweep?: number[]
+  walk_forward?: boolean
 }

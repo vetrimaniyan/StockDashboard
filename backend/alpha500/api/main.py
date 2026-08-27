@@ -17,6 +17,8 @@ from fastapi.responses import JSONResponse
 
 from alpha500 import risk
 from alpha500.api.schemas import (
+    BacktestAvailability,
+    BacktestRequest,
     Breadth,
     DashboardResponse,
     DataStatus,
@@ -476,3 +478,137 @@ def get_stock(
         upcoming_ex_dates=upcoming,
         risk=risk_out,
     )
+
+
+@app.get("/api/backtest/availability", response_model=BacktestAvailability)
+def backtest_availability() -> BacktestAvailability:
+    """Is there enough materialised history to simulate against?
+
+    A backtest needs the metrics as they stood on each past session. The
+    nightly pipeline stores only the latest, so this reports plainly whether
+    'alpha500 materialise' has been run rather than letting the UI offer a
+    control that cannot work.
+    """
+    with analytical(read_only=True) as conn:
+        row = conn.execute(
+            "SELECT count(DISTINCT trade_date), min(trade_date), max(trade_date) "
+            "FROM metrics_daily"
+        ).fetchone()
+
+    sessions, first, last = (row or (0, None, None))
+    if sessions < 2:
+        return BacktestAvailability(
+            ready=False, sessions=sessions, start=first, end=last,
+            reason=(
+                "Metrics are materialised for "
+                f"{sessions} session{'' if sessions == 1 else 's'}. "
+                "Run 'alpha500 materialise' to compute the metrics as they stood "
+                "on each historical session — a backtest cannot be run without them."
+            ),
+        )
+    return BacktestAvailability(ready=True, sessions=sessions, start=first, end=last)
+
+
+@app.post("/api/backtest")
+def run_backtest_endpoint(request: BacktestRequest) -> dict[str, Any]:
+    """Replay a screen over history (Phase 3).
+
+    Runs two full simulations (with and without TDS withheld), so it is
+    seconds rather than milliseconds and sits outside the NFR-1.4 screen
+    budget by design.
+    """
+    import dataclasses
+
+    from alpha500.backtest.engine import BacktestConfig, run_backtest
+    from alpha500.backtest.walkforward import sweep, walk_forward
+    from alpha500.screens.presets import PRESETS, get_preset
+
+    if request.screen_name not in PRESETS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown screen {request.screen_name!r}",
+        )
+
+    with analytical(read_only=True) as conn:
+        bounds = conn.execute(
+            "SELECT min(trade_date), max(trade_date) FROM metrics_daily"
+        ).fetchone()
+        if bounds is None or bounds[0] is None or bounds[0] == bounds[1]:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Metrics are materialised for at most one session. "
+                    "Run 'alpha500 materialise' first."
+                ),
+            )
+
+        config = BacktestConfig(
+            screen=get_preset(request.screen_name),
+            exit_screen=get_preset("Momentum Breakdown") if request.use_exit_screen else None,
+            start=request.start or bounds[0],
+            end=request.end or bounds[1],
+            initial_capital=request.initial_capital,
+            max_positions=request.max_positions,
+            stop_atr_multiple=request.stop_atr_multiple,
+            trailing_stop=request.trailing_stop,
+            slippage_pct=request.slippage_pct,
+        )
+
+        result = run_backtest(conn, config)
+        payload: dict[str, Any] = result.as_dict()
+        payload["benchmark"] = _benchmark(conn, config.start, config.end)
+        payload["config"] = {
+            "screen_name": request.screen_name,
+            "stop_atr_multiple": request.stop_atr_multiple,
+            "trailing_stop": request.trailing_stop,
+            "use_exit_screen": request.use_exit_screen,
+            "max_positions": request.max_positions,
+            "initial_capital": request.initial_capital,
+        }
+
+        def set_stop(cfg: Any, value: Any) -> Any:
+            return dataclasses.replace(cfg, stop_atr_multiple=value)
+
+        if request.sweep:
+            payload["sweep"] = sweep(conn, config, request.sweep, set_stop).as_dict()
+        if request.walk_forward:
+            values = request.sweep or [1.5, 2.0, 2.5, 3.0, 4.0]
+            payload["walk_forward"] = walk_forward(conn, config, values, set_stop).as_dict()
+
+    return payload
+
+
+def _benchmark(conn: Any, start: date, end: date) -> dict[str, Any] | None:
+    """Buy-and-hold the index over the same window.
+
+    Without it a CAGR is uninterpretable: a strategy earning 13% in a market
+    that returned 11% is a different proposition from one earning 13% in a
+    market that returned 20%.
+    """
+    rows = conn.execute(
+        "SELECT trade_date, close FROM index_ohlcv_daily "
+        "WHERE index_name = ? AND trade_date BETWEEN ? AND ? ORDER BY trade_date",
+        [settings.index_name, start, end],
+    ).fetchall()
+    if len(rows) < 2:
+        return None
+
+    closes = [float(r[1]) for r in rows]
+    peak = closes[0]
+    worst = 0.0
+    for value in closes:
+        peak = max(peak, value)
+        worst = min(worst, value / peak - 1.0)
+
+    years = len(closes) / 252.0
+    total = closes[-1] / closes[0] - 1.0
+    cagr = ((closes[-1] / closes[0]) ** (1.0 / years) - 1.0) if years > 0 else 0.0
+    return {
+        "index_name": settings.index_name,
+        "cagr_pct": cagr * 100.0,
+        "total_return_pct": total * 100.0,
+        "max_drawdown_pct": worst * 100.0,
+        "curve": [
+            {"date": r[0].isoformat(), "close": float(r[1])} for r in rows
+        ],
+    }
