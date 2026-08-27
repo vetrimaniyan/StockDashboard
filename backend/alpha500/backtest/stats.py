@@ -12,11 +12,30 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Sequence
+from typing import Protocol, Sequence
 
 import numpy as np
 
 from alpha500.metrics import periods as p
+
+
+class ClosedTrade(Protocol):
+    """What the statistics need from a trade record.
+
+    A structural type rather than an import of ``Trade``, so the engine can
+    depend on this module without the dependency running back the other way.
+    """
+
+    @property
+    def exit_date(self) -> date | None: ...
+    @property
+    def holding_days(self) -> int: ...
+    @property
+    def net_return_pct(self) -> float: ...
+    @property
+    def costs(self) -> float: ...
+    @property
+    def tds(self) -> float: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,11 +158,11 @@ def performance(
 
 
 def trade_stats(
-    trades: Sequence["object"],
+    trades: Sequence[ClosedTrade],
     exposure_samples: Sequence[float],
 ) -> TradeStats:
     """Aggregate closed trades. ``trades`` are ``Trade`` records from the engine."""
-    closed = [t for t in trades if getattr(t, "exit_date", None) is not None]
+    closed = [t for t in trades if t.exit_date is not None]
     if not closed:
         return TradeStats(
             trades=0, winners=0, losers=0, hit_rate_pct=None,
@@ -212,7 +231,7 @@ def summarise(
     gross_equity: Sequence[float],
     net_equity: Sequence[float],
     sessions: Sequence[date],
-    trades: Sequence["object"],
+    trades: Sequence[ClosedTrade],
     exposure_samples: Sequence[float],
     initial: float,
     warnings: Sequence[str] = (),

@@ -148,6 +148,115 @@ def cmd_materialise(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backtest(args: argparse.Namespace) -> int:
+    """Replay a screen over history with realistic friction (Phase 3)."""
+    import dataclasses
+
+    from alpha500.backtest.engine import BacktestConfig, run_backtest
+    from alpha500.backtest.walkforward import sweep, walk_forward
+    from alpha500.screens.presets import PRESETS, get_preset
+
+    if args.screen not in PRESETS:
+        print(f"Unknown screen {args.screen!r}. Available: {', '.join(PRESETS)}")
+        return 1
+
+    with analytical(read_only=True) as conn:
+        bounds = conn.execute(
+            "SELECT min(trade_date), max(trade_date) FROM metrics_daily"
+        ).fetchone()
+        if bounds is None or bounds[0] is None or bounds[0] == bounds[1]:
+            print(
+                "Metrics are materialised for at most one session. "
+                "Run 'alpha500 materialise' first — a backtest needs the metrics "
+                "as they stood on each historical date."
+            )
+            return 1
+
+        config = BacktestConfig(
+            screen=get_preset(args.screen),
+            exit_screen=get_preset("Momentum Breakdown") if args.use_exit_screen else None,
+            start=_parse_date(args.start) or bounds[0],
+            end=_parse_date(args.end) or bounds[1],
+            initial_capital=args.capital,
+            max_positions=args.max_positions,
+            stop_atr_multiple=args.stop,
+            trailing_stop=args.trailing,
+        )
+
+        result = run_backtest(conn, config)
+        _print_backtest(args.screen, result)
+
+        if args.sweep:
+            values = [float(v) for v in args.sweep.split(",")]
+            print("\nATR stop sweep")
+            verdict = sweep(
+                conn, config, values,
+                lambda cfg, value: dataclasses.replace(cfg, stop_atr_multiple=value),
+            )
+            for point in verdict.points:
+                print(
+                    f"  k={point.value:<5} net CAGR {point.metric:>7.2f}%   "
+                    f"trades {point.detail['trades']:>4}   "
+                    f"maxDD {point.detail['max_drawdown_pct']:>7.2f}%"
+                )
+            print(f"  best k={verdict.best_value}, plateau width "
+                  f"{verdict.plateau_width}/{len(values)}")
+            if verdict.warning:
+                print(f"\n  {verdict.warning}")
+
+        if args.walk_forward:
+            values = [float(v) for v in (args.sweep or "1.5,2.0,2.5,3.0,4.0").split(",")]
+            print("\nWalk-forward")
+            wf = walk_forward(
+                conn, config, values,
+                lambda cfg, value: dataclasses.replace(cfg, stop_atr_multiple=value),
+            )
+            for window in wf.windows:
+                print(
+                    f"  test {window['test_start']}..{window['test_end']}  "
+                    f"k={window['chosen_value']:<5} "
+                    f"in {window['in_sample_cagr']:>7.2f}%  "
+                    f"out {window['out_of_sample_cagr']:>7.2f}%"
+                )
+            if wf.in_sample_cagr is not None:
+                print(f"  mean in-sample {wf.in_sample_cagr:.2f}%, "
+                      f"out-of-sample {wf.out_of_sample_cagr:.2f}%")
+            if wf.warning:
+                print(f"\n  {wf.warning}")
+    return 0
+
+
+def _print_backtest(name: str, result: Any) -> None:
+    summary = result.summary
+    trades = summary.trades
+    print(f"\n{name} — {summary.start} to {summary.end} ({summary.sessions} sessions)")
+    print(f"  {'':<18}{'gross of tax':>14}{'net of tax':>14}")
+    for label, attr in (
+        ("CAGR %", "cagr_pct"),
+        ("total return %", "total_return_pct"),
+        ("max drawdown %", "max_drawdown_pct"),
+    ):
+        g = getattr(summary.gross, attr)
+        n = getattr(summary.net, attr)
+        print(f"  {label:<18}{g:>14.2f}{n:>14.2f}")
+    for label, attr in (("Sharpe", "sharpe"), ("Sortino", "sortino")):
+        g = getattr(summary.gross, attr)
+        n = getattr(summary.net, attr)
+        gs = f"{g:.2f}" if g is not None else "n/a"
+        ns = f"{n:.2f}" if n is not None else "n/a"
+        print(f"  {label:<18}{gs:>14}{ns:>14}")
+
+    if trades.trades:
+        print(f"\n  trades {trades.trades}   hit rate {trades.hit_rate_pct:.1f}%   "
+              f"avg hold {trades.avg_holding_days:.0f}d   exposure {trades.exposure_pct:.0f}%")
+        print(f"  avg win {trades.avg_win_pct:.2f}%   avg loss {trades.avg_loss_pct:.2f}%   "
+              f"win/loss {trades.win_loss_ratio:.2f}" if trades.win_loss_ratio else "")
+        print(f"  costs Rs{trades.total_costs:,.0f}   TDS withheld Rs{trades.total_tds:,.0f}")
+
+    for warning in summary.warnings:
+        print(f"\n  !! {warning}")
+
+
 def cmd_reconcile(_args: argparse.Namespace) -> int:
     """FR-3.2 reconciliation — a release gate (NFR-5.4)."""
     with analytical(read_only=True) as conn:
@@ -241,6 +350,23 @@ def main(argv: list[str] | None = None) -> int:
     p_hist.add_argument("--from", dest="start", default=None, metavar="YYYY-MM-DD")
     p_hist.add_argument("--to", dest="end", default=None, metavar="YYYY-MM-DD")
 
+    p_bt = sub.add_parser("backtest", help="replay a screen over history (Phase 3)")
+    p_bt.add_argument("screen", nargs="?", default="Momentum Leaders")
+    p_bt.add_argument("--from", dest="start", default=None, metavar="YYYY-MM-DD")
+    p_bt.add_argument("--to", dest="end", default=None, metavar="YYYY-MM-DD")
+    p_bt.add_argument("--capital", type=float, default=1_000_000.0)
+    p_bt.add_argument("--max-positions", type=int, default=10)
+    p_bt.add_argument("--stop", type=float, default=2.0, help="ATR stop multiple")
+    p_bt.add_argument("--trailing", action="store_true", help="trail the stop")
+    p_bt.add_argument(
+        "--use-exit-screen", action="store_true",
+        help="exit on the Momentum Breakdown signal as well as the stop",
+    )
+    p_bt.add_argument("--sweep", default=None, metavar="1.5,2.0,2.5",
+                      help="sweep the ATR stop multiple and judge the peak")
+    p_bt.add_argument("--walk-forward", action="store_true",
+                      help="choose the stop in-sample, measure it out-of-sample")
+
     p_serve = sub.add_parser("serve", help="start the API")
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)
@@ -261,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "init": cmd_init, "universe": cmd_universe, "backfill": cmd_backfill,
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
-        "materialise": cmd_materialise,
+        "materialise": cmd_materialise, "backtest": cmd_backtest,
         "reconcile": cmd_reconcile, "serve": cmd_serve,
     }
     return handlers[args.command](args)

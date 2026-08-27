@@ -44,13 +44,21 @@ testpaths = ["backend/tests"]
 pythonpath = ["backend"]
 
 [tool.mypy]
-python_version = "3.11"
+# 3.11 is the floor the project supports, but the installed numpy stubs use
+# `type` statements that only parse under 3.12+. Pinning the checker to 3.11
+# made it abort on numpy's own stubs before reaching any project file, so
+# NFR-5.5's `mypy --strict` gate silently checked nothing at all.
+python_version = "3.13"
 warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = ["alpha500.metrics.*", "alpha500.providers.*"]
+module = ["alpha500.metrics.*", "alpha500.providers.*", "alpha500.backtest.*"]
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*", "duckdb.*", "yfinance.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100

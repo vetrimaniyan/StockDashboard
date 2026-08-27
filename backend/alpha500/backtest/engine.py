@@ -364,10 +364,10 @@ def _simulate(
 
     for slot, session in enumerate(sessions):
         previous_session = sessions[slot - 1] if slot > 0 else None
-        exit_tokens_prev = (
-            exit_token_sets.get(previous_session, frozenset())
+        exit_tokens_prev: set[int] = (
+            exit_token_sets.get(previous_session, set())
             if previous_session is not None
-            else frozenset()
+            else set()
         )
 
         # ---- exits, evaluated before new entries so capital recycles -----
@@ -411,13 +411,13 @@ def _simulate(
                 fill = open_px
                 reason = "time"
 
-            if reason is None:
+            if reason is None or fill is None:
                 if config.trailing_stop and np.isfinite(arrays["atr"][slot]):
                     trailed = close_px - config.stop_atr_multiple * arrays["atr"][slot]
                     trade.stop_price = max(trade.stop_price, trailed)
                 continue
 
-            fill_price = fill * (1.0 - config.slippage_pct)
+            fill_price = float(fill) * (1.0 - config.slippage_pct)
             proceeds = fill_price * trade.quantity
             trade.exit_date = session
             trade.exit_price = fill_price
