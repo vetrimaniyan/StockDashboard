@@ -35,6 +35,7 @@ from alpha500.metrics import periods as p
 from alpha500.metrics.engine import (
     _BOOL_COLUMNS,
     _INT_COLUMNS,
+    _TEXT_COLUMNS,
     METRIC_COLUMNS,
     _finalise_cross_section,
     _load_prices,
@@ -46,7 +47,7 @@ from alpha500.metrics.series import compute_series_metrics
 # per-symbol pass and can be staged.
 CROSS_SECTIONAL: frozenset[str] = frozenset(
     {
-        "is_eligible",
+        "is_eligible", "ineligible_reason",
         "rs_1m", "rs_3m", "rs_6m", "rs_12m", "rs_rating",
         "trend_template_score", "is_trend_template", "is_pullback",
         "momentum_rank", "composite_z",
@@ -67,6 +68,8 @@ STAGE_TABLE = "metrics_stage"
 
 
 def _sql_type(name: str) -> str:
+    if name in _TEXT_COLUMNS:
+        return "VARCHAR"
     if name in _BOOL_COLUMNS:
         return "BOOLEAN"
     if name in _INT_COLUMNS:
@@ -75,6 +78,8 @@ def _sql_type(name: str) -> str:
 
 
 def _arrow_type(name: str) -> pa.DataType:
+    if name in _TEXT_COLUMNS:
+        return pa.string()
     if name in _BOOL_COLUMNS:
         return pa.bool_()
     if name in _INT_COLUMNS:
@@ -90,11 +95,16 @@ def _clean(name: str, values: NDArray[Any]) -> list[Any]:
     requires a metric with insufficient history to be null, never zero.
     """
     out: list[Any] = []
+    is_text = name in _TEXT_COLUMNS
     is_bool = name in _BOOL_COLUMNS
     is_int = name in _INT_COLUMNS
     for value in values:
         if value is None:
             out.append(None)
+            continue
+        if is_text:
+            text = str(value).strip()
+            out.append(text or None)
             continue
         if is_bool:
             if isinstance(value, (bool, np.bool_)):

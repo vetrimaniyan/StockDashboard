@@ -42,7 +42,7 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "pullback_from_high_pct", "reversal_score", "is_reversal",
     "is_pullback_reversal",
     "is_trend_template", "trend_template_score", "is_pullback", "gap_disqualified",
-    "history_days", "is_eligible",
+    "history_days", "is_eligible", "ineligible_reason",
 )
 
 _INT_COLUMNS = frozenset(
@@ -52,6 +52,8 @@ _INT_COLUMNS = frozenset(
         "reversal_score",
     }
 )
+# The only free-text metric: which rule held a symbol out of screen results.
+_TEXT_COLUMNS = frozenset({"ineligible_reason"})
 _BOOL_COLUMNS = frozenset(
     {
         "ma_alignment", "is_52w_high_breakout", "is_n_day_breakout_20",
@@ -225,7 +227,7 @@ def _finalise_cross_section(
     history_days = _as_float(arrays["history_days"])
     turnover = _as_float(arrays["turnover_20d_median"])
 
-    eligible, _reasons = xs.eligibility(
+    eligible, reasons = xs.eligibility(
         history_days=history_days,
         turnover_20d_median=turnover,
         series=series_codes,
@@ -233,6 +235,12 @@ def _finalise_cross_section(
         symbols=symbols,
     )
     arrays["is_eligible"] = np.array(eligible, dtype=object)
+    # FR-1.5: a symbol held out of screen results must be explainable, not
+    # merely absent. The reason is computed here anyway; storing it is what
+    # makes "why is this stock never in my results" answerable in the UI.
+    arrays["ineligible_reason"] = np.array(
+        [r or None for r in reasons], dtype=object
+    )
 
     # Relative strength against the index (FR-6.3).
     for label, window in (("1m", p.MONTH), ("3m", p.QUARTER),
@@ -286,6 +294,10 @@ def _finalise_cross_section(
 def _coerce(name: str, value: Any) -> Any:
     if value is None:
         return None
+    if name in _TEXT_COLUMNS:
+        text = str(value).strip()
+        # An eligible row has no reason; store absence as NULL rather than "".
+        return text or None
     if name in _BOOL_COLUMNS:
         if isinstance(value, (bool, np.bool_)):
             return bool(value)

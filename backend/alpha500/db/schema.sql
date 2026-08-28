@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
     gap_disqualified BOOLEAN,
     history_days INTEGER,
     is_eligible BOOLEAN,
+    ineligible_reason VARCHAR,
     PRIMARY KEY (instrument_token, trade_date)
 );
 

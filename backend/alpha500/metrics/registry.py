@@ -245,6 +245,11 @@ REGISTRY: Final[tuple[MetricDef, ...]] = (
     _m("history_days", "History (sessions)", "count of stored sessions",
        "Fewer than 252 sessions is insufficient for 52-week and 12-month metrics.",
        "Data quality", "integer"),
+    _m("ineligible_reason", "Exclusion reason",
+       "series / surveillance / insufficient history / below liquidity floor",
+       "Which rule holds this symbol out of screen results. Empty when eligible. "
+       "Excluded names are still ingested and charted (FR-1.5).",
+       "Data quality", "text", True),
     _m("is_eligible", "Eligible",
        "series in (EQ, BE) AND history >= 252 AND turnover >= floor AND not flagged",
        "Whether the symbol may appear in screen results. Ineligible names are "

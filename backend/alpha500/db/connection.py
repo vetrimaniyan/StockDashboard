@@ -131,34 +131,50 @@ def init_databases() -> None:
 def _migrate_metric_columns(conn: duckdb.DuckDBPyConnection) -> None:
     """Add metric columns that a newer engine expects but the file predates.
 
-    ``CREATE TABLE IF NOT EXISTS`` is a no-op once the table exists, so a
-    schema change would otherwise be invisible to any store that already holds
-    data — and the first write would fail on a column nobody had added. The
-    materialised history is hours of rate-limited fetching; migrating in place
-    beats rebuilding it.
+    ``CREATE TABLE IF NOT EXISTS`` is a no-op once the table exists, so a schema
+    change is otherwise invisible to any store that already holds data, and the
+    first write fails on a column nobody added. The materialised history is
+    hours of rate-limited fetching, so migrating beats rebuilding it.
 
-    Values stay NULL until the next recompute, which the engine fingerprint in
-    ``metrics_meta`` already surfaces as staleness.
+    The table is rewritten rather than altered in place. ``ALTER TABLE ADD
+    COLUMN`` against ``metrics_daily`` — which carries a two-column primary key
+    over ~800k rows — left DuckDB's ART index inconsistent, and the next
+    ``DELETE`` for a single date failed with "Failed to delete all rows from
+    index. Only deleted 50 out of 500 rows", a FATAL error that killed the
+    connection. Rewriting costs seconds and rebuilds the index cleanly.
+
+    Values in the new columns stay NULL until the next recompute, which the
+    engine fingerprint in ``metrics_meta`` already surfaces as staleness.
     """
-    from alpha500.metrics.engine import (
-        _BOOL_COLUMNS,
-        _INT_COLUMNS,
-        METRIC_COLUMNS,
-    )
+    from alpha500.metrics.engine import METRIC_COLUMNS
 
-    existing = {
+    existing = [
         row[0]
         for row in conn.execute(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'metrics_daily'"
+            "WHERE table_name = 'metrics_daily' ORDER BY ordinal_position"
         ).fetchall()
-    }
-    for name in METRIC_COLUMNS:
-        if name in existing:
-            continue
-        sql_type = (
-            "BOOLEAN" if name in _BOOL_COLUMNS
-            else "BIGINT" if name in _INT_COLUMNS
-            else "DOUBLE"
+    ]
+    if not existing:
+        return
+    missing = [name for name in METRIC_COLUMNS if name not in existing]
+    if not missing:
+        return
+
+    carried = ", ".join(existing)
+    try:
+        # Secondary indexes depend on the table and block the rename;
+        # schema.sql recreates them.
+        conn.execute("DROP INDEX IF EXISTS idx_metrics_date_rank")
+        conn.execute("ALTER TABLE metrics_daily RENAME TO metrics_daily_migrating")
+        # Recreate from the current schema, primary key and all.
+        conn.execute(_read_sql("schema.sql"))
+        conn.execute(
+            f"INSERT INTO metrics_daily ({carried}) "
+            f"SELECT {carried} FROM metrics_daily_migrating"
         )
-        conn.execute(f"ALTER TABLE metrics_daily ADD COLUMN {name} {sql_type}")
+        conn.execute("DROP TABLE metrics_daily_migrating")
+    except Exception:
+        # Leave the original in place under its temporary name rather than
+        # losing it; the failure is loud and the data is recoverable.
+        raise
