@@ -21,7 +21,7 @@ import csv
 import io
 import zipfile
 from datetime import date, datetime
-from typing import Final, Iterator, Sequence
+from typing import Any, Final, Iterator, Sequence
 
 from alpha500.providers.base import MarketDataProvider
 from alpha500.providers.models import (
@@ -36,6 +36,20 @@ from alpha500.providers.nse_http import NSE_ARCHIVES, NseSession
 
 # FR-1.2: verify against https://www.nseindia.com/all-reports at build time.
 NIFTY500_LIST_URL: Final = f"{NSE_ARCHIVES}/content/indices/ind_nifty500list.csv"
+
+# The NIFTY 500 is exactly its four size tiers: 50 + 50 + 150 + 250. Microcap
+# 250 covers ranks 501-750 and is deliberately absent — it is outside the
+# universe, though its valuation is still worth tracking.
+TIER_LIST_URLS: Final[dict[str, str]] = {
+    "NIFTY50": f"{NSE_ARCHIVES}/content/indices/ind_nifty50list.csv",
+    "NIFTYNEXT50": f"{NSE_ARCHIVES}/content/indices/ind_niftynext50list.csv",
+    "NIFTYMIDCAP150": f"{NSE_ARCHIVES}/content/indices/ind_niftymidcap150list.csv",
+    "NIFTYSMALLCAP250": f"{NSE_ARCHIVES}/content/indices/ind_niftysmallcap250list.csv",
+}
+
+# Daily close file carrying P/E, P/B and dividend yield for every published
+# index. Verify the path at build time; NSE archive URLs are volatile (R-1).
+INDEX_CLOSE_URL: Final = f"{NSE_ARCHIVES}/content/indices/ind_close_all_{{ddmmyyyy}}.csv"
 
 # FR-2.6: UDiFF bhavcopy, current format (NSE migrated to this in July 2024).
 UDIFF_BHAVCOPY_URL: Final = (
@@ -289,3 +303,63 @@ class NseArchiveProvider(MarketDataProvider):
 
     def close(self) -> None:
         self._session.close()
+
+    def get_index_tiers(self) -> dict[str, str]:
+        """Symbol -> size tier across the four NIFTY 500 constituent lists.
+
+        A symbol belongs to exactly one tier, so the last write wins only if
+        NSE publishes an overlap, which would itself be worth knowing about.
+        """
+        tiers: dict[str, str] = {}
+        for tier, url in TIER_LIST_URLS.items():
+            resp = self._session.get(url)
+            for row in csv.DictReader(io.StringIO(resp.text)):
+                symbol = (row.get("Symbol") or "").strip().upper()
+                if symbol:
+                    tiers[symbol] = tier
+        return tiers
+
+    def get_index_valuations(self, on: date) -> list[dict[str, Any]]:
+        """P/E, P/B and dividend yield for every index on one session.
+
+        Returns an empty list when the file is absent, which is how a holiday
+        or a not-yet-published session presents. The caller decides whether
+        that is a gap worth reporting.
+        """
+        url = INDEX_CLOSE_URL.format(ddmmyyyy=on.strftime("%d%m%Y"))
+        try:
+            resp = self._session.get(url)
+        except ProviderError:
+            return []
+
+        out: list[dict[str, Any]] = []
+        for row in csv.DictReader(io.StringIO(resp.text)):
+            name = (row.get("Index Name") or "").strip()
+            if not name:
+                continue
+            out.append(
+                {
+                    "index_name": name,
+                    "close": _to_float(row.get("Closing Index Value")),
+                    "pe": _to_float(row.get("P/E")),
+                    "pb": _to_float(row.get("P/B")),
+                    "div_yield": _to_float(row.get("Div Yield")),
+                }
+            )
+        return out
+
+
+def _to_float(text: Any) -> float | None:
+    """NSE writes '-' for an index with no meaningful ratio."""
+    if text is None:
+        return None
+    cleaned = str(text).strip().replace(",", "")
+    if not cleaned or cleaned in {"-", "NA", "N.A."}:
+        return None
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return None
+    # A zero or negative P/E is an aggregate of loss-making constituents and is
+    # not a valuation; store it as absent rather than as a number to median.
+    return value if value > 0 else None

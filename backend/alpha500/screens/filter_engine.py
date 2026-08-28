@@ -22,7 +22,7 @@ from alpha500.metrics.engine import METRIC_COLUMNS
 INSTRUMENT_FIELDS: Final[frozenset[str]] = frozenset(
     {
         "tradingsymbol", "name", "isin", "series", "industry", "sector",
-        "basic_industry",
+        "basic_industry", "index_tier",
         # Not a screening criterion, but AR-4 requires deterministic ordering:
         # any "top N" needs a final tie-break that cannot vary between runs,
         # and the primary key is the only field guaranteed unique.
@@ -178,7 +178,7 @@ def compile_screen(definition: dict[str, Any]) -> CompiledScreen:
 
 
 SELECT_COLUMNS: Final[str] = """
-    i.tradingsymbol, i.name, i.sector, i.industry, i.series,
+    i.tradingsymbol, i.name, i.sector, i.industry, i.series, i.index_tier,
     m.instrument_token, m.trade_date,
     o.close, o.volume, o.delivery_pct,
     o.close * i.float_shares AS market_cap,

@@ -148,7 +148,10 @@ def _migrate_metric_columns(conn: duckdb.DuckDBPyConnection) -> None:
     """
     from alpha500.metrics.engine import METRIC_COLUMNS
 
-    _rewrite_if_missing(conn, "instruments", ["float_shares", "float_shares_as_of"])
+    _rewrite_if_missing(
+        conn, "instruments",
+        ["float_shares", "float_shares_as_of", "index_tier"],
+    )
 
     existing = [
         row[0]

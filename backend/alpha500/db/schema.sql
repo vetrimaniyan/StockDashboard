@@ -21,7 +21,10 @@ CREATE TABLE IF NOT EXISTS instruments (
     -- market-cap weighted index, so free-float cap is the basis NSE
     -- itself ranks constituents by (open item B-3).
     float_shares       BIGINT,
-    float_shares_as_of DATE
+    float_shares_as_of DATE,
+    -- Size tier within the NIFTY 500: the index is exactly
+    -- NIFTY50 + NEXT50 + MIDCAP150 + SMALLCAP250.
+    index_tier         VARCHAR
 );
 
 CREATE TABLE IF NOT EXISTS index_membership (
@@ -130,6 +133,21 @@ CREATE TABLE IF NOT EXISTS index_ohlcv_daily (
     open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE NOT NULL,
     volume BIGINT,
     source             VARCHAR NOT NULL,
+    ingested_at        TIMESTAMP NOT NULL,
+    PRIMARY KEY (index_name, trade_date)
+);
+
+-- Daily index valuation, from NSE's ind_close_all file. Kept apart from
+-- index_ohlcv_daily because it covers every published index, not just the one
+-- the universe is drawn from, and because P/E is a valuation input rather than
+-- a price series.
+CREATE TABLE IF NOT EXISTS index_valuation_daily (
+    index_name         VARCHAR NOT NULL,
+    trade_date         DATE NOT NULL,
+    close              DOUBLE,
+    pe                 DOUBLE,
+    pb                 DOUBLE,
+    div_yield          DOUBLE,
     ingested_at        TIMESTAMP NOT NULL,
     PRIMARY KEY (index_name, trade_date)
 );

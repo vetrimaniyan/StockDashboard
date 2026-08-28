@@ -618,3 +618,34 @@ def _benchmark(conn: Any, start: date, end: date) -> dict[str, Any] | None:
             {"date": r[0].isoformat(), "close": float(r[1])} for r in rows
         ],
     }
+
+
+@app.get("/api/indices/valuation")
+def get_index_valuation() -> dict[str, Any]:
+    """Current P/E for the tracked indices against their own 7y/10y medians.
+
+    Answers "is this segment expensive by its own standards", which a level
+    alone cannot: a midcap P/E of 30 means nothing until you know the index has
+    historically sat near 25.
+    """
+    from alpha500.pipeline.indices import valuation_summary
+
+    with analytical(read_only=True) as conn:
+        rows = valuation_summary(conn)
+        span = conn.execute(
+            "SELECT min(trade_date), max(trade_date), count(*) "
+            "FROM index_valuation_daily"
+        ).fetchone()
+
+    return {
+        "indices": rows,
+        "history_from": span[0].isoformat() if span and span[0] else None,
+        "history_to": span[1].isoformat() if span and span[1] else None,
+        "observations": int(span[2]) if span else 0,
+        # Stated so a median is never mistaken for a daily-sampled one.
+        "note": (
+            "History is sampled weekly; the latest session is always exact. "
+            "A median needs data spanning at least 80% of its window, or it "
+            "is reported as unavailable rather than computed from a partial one."
+        ),
+    }

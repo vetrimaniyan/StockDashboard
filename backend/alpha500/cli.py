@@ -6,7 +6,7 @@ import argparse
 import logging
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from alpha500.config import settings
 from alpha500.db import store
@@ -276,6 +276,41 @@ def cmd_marketcap(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_indices(args: argparse.Namespace) -> int:
+    """Size tiers for constituents, and index P/E history."""
+    from alpha500.pipeline.indices import (
+        sync_index_tiers,
+        sync_index_valuations,
+        valuation_summary,
+    )
+
+    init_databases()
+    provider = NseArchiveProvider()
+    started = time.monotonic()
+    with analytical() as conn:
+        print("Size tiers...")
+        tagged = sync_index_tiers(conn, provider)
+        print(f"  {tagged} constituents tagged")
+
+        end = date.today()
+        start = _parse_date(args.start) or end - timedelta(days=365 * args.years)
+        print(f"Index valuations {start} to {end}...")
+        written, empty = sync_index_valuations(
+            conn, provider, start, end, every=args.every, progress=_progress
+        )
+        print(f"  {written:,} rows written, {empty} sessions with no file")
+
+        print("\nCurrent P/E against its own history:")
+        for row in valuation_summary(conn):
+            m7 = f"{row['median_pe_7y']:.1f}" if row["median_pe_7y"] else "—"
+            m10 = f"{row['median_pe_10y']:.1f}" if row["median_pe_10y"] else "—"
+            pe = f"{row['pe']:.2f}" if row["pe"] else "—"
+            print(f"  {row['index_name']:<22} PE {pe:>6}   7y median {m7:>6}   "
+                  f"10y median {m10:>6}")
+    print(f"\nFinished in {time.monotonic() - started:.0f}s")
+    return 0
+
+
 def cmd_reconcile(_args: argparse.Namespace) -> int:
     """FR-3.2 reconciliation — a release gate (NFR-5.4)."""
     with analytical(read_only=True) as conn:
@@ -392,6 +427,16 @@ def main(argv: list[str] | None = None) -> int:
     p_mcap.add_argument("--limit", type=int, default=None)
     p_mcap.add_argument("--force", action="store_true", help="refetch existing counts")
 
+    p_idx = sub.add_parser(
+        "indices", help="sync size tiers and index P/E history"
+    )
+    p_idx.add_argument("--years", type=int, default=10)
+    p_idx.add_argument("--from", dest="start", default=None, metavar="YYYY-MM-DD")
+    p_idx.add_argument(
+        "--every", type=int, default=5,
+        help="sample every Nth session (5 = weekly); 1 fetches every session",
+    )
+
     p_serve = sub.add_parser("serve", help="start the API")
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)
@@ -413,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
         "init": cmd_init, "universe": cmd_universe, "backfill": cmd_backfill,
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
         "materialise": cmd_materialise, "backtest": cmd_backtest,
-        "marketcap": cmd_marketcap,
+        "marketcap": cmd_marketcap, "indices": cmd_indices,
         "reconcile": cmd_reconcile, "serve": cmd_serve,
     }
     return handlers[args.command](args)

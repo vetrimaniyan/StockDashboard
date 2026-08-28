@@ -9,6 +9,7 @@
 
 import type { DashboardResponse, ScreenRow } from '../api'
 import { currency, signedPct, directionClass, num, EM_DASH } from '../format'
+import { IndexValuation } from './IndexValuation'
 import { RegimeBanner } from './RegimeBanner'
 
 interface Props {
@@ -177,6 +178,13 @@ export function Dashboard({ data, onSelect, onOpenScreen }: Props) {
             },
           ]}
         />
+      </Panel>
+
+      <Panel
+        title="Index valuations"
+        subtitle="Current P/E for each size segment against its own 7- and 10-year medians. A level alone says nothing; the gap to its own history does."
+      >
+        <IndexValuation />
       </Panel>
 
       {/* FR-14.6: pullbacks to support with reversal confirmation. FR-14.7

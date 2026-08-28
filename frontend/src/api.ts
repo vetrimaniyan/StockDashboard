@@ -166,6 +166,7 @@ export const api = {
     }),
   stock: (symbol: string) =>
     request<StockDetail>(`/api/stock/${encodeURIComponent(symbol)}`),
+  indexValuation: () => request<IndexValuationResponse>('/api/indices/valuation'),
   backtestAvailability: () =>
     request<BacktestAvailability>('/api/backtest/availability'),
   backtest: (params: BacktestParams) =>
@@ -181,6 +182,29 @@ export const api = {
       `/api/export/${fmt}`,
       { method: 'POST', body: JSON.stringify(payload) },
     ),
+}
+
+export interface IndexValuation {
+  index_name: string
+  as_of: string | null
+  close: number | null
+  pe: number | null
+  pb: number | null
+  div_yield: number | null
+  median_pe_7y: number | null
+  median_pe_10y: number | null
+  sessions_7y: number
+  sessions_10y: number
+  pe_vs_7y_pct: number | null
+  pe_vs_10y_pct: number | null
+}
+
+export interface IndexValuationResponse {
+  indices: IndexValuation[]
+  history_from: string | null
+  history_to: string | null
+  observations: number
+  note: string
 }
 
 export interface BacktestAvailability {
