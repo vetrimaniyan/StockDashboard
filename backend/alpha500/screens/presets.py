@@ -19,6 +19,13 @@ MOMENTUM_BREAKDOWN: Final[str] = "Momentum Breakdown"
 # a different setup rather than a variant of this one.
 PULLBACK_REVERSAL: Final[str] = "Pullback + Reversal"
 
+# Not a screen but the universe itself: every constituent, including the ones
+# the screens deliberately exclude. FR-1.5 requires symbols dropped for thin
+# liquidity or short history to be visible somewhere rather than silently
+# absent, and "why is this stock never in my results" is otherwise
+# unanswerable from the UI.
+ALL_CONSTITUENTS: Final[str] = "All NIFTY 500"
+
 PRESETS: Final[dict[str, dict[str, Any]]] = {
     "Momentum Leaders": {
         "name": "Momentum Leaders",
@@ -121,6 +128,19 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
             {"field": "instrument_token", "direction": "asc"},
         ],
         "limit": 10,
+    },
+    ALL_CONSTITUENTS: {
+        "name": ALL_CONSTITUENTS,
+        "version": 1,
+        "description": (
+            "Every NIFTY 500 constituent, including names excluded from the "
+            "screens. Filter on is_eligible to see which and why."
+        ),
+        # The one screen that does NOT hide ineligible rows.
+        "universe": {"index": settings.index_name, "exclude_ineligible": False},
+        "filters": {"op": "AND", "conditions": []},
+        "sort": [{"field": "tradingsymbol", "direction": "asc"}],
+        "limit": 500,
     },
     MOMENTUM_BREAKDOWN: {
         "name": MOMENTUM_BREAKDOWN,

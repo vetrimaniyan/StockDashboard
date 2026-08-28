@@ -149,25 +149,45 @@ export function Screener({
   }, [active, columns])
 
   const available = useMemo(() => availableColumns(rows), [rows])
+  const isUniverse = presets.find((p) => p.name === active)?.is_universe ?? false
+  const eligibleCount = useMemo(
+    () => rows.filter((r) => r.is_eligible === true).length,
+    [rows],
+  )
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)] overflow-x-auto">
-        {presets.map((p) => (
-          <button
-            key={p.name}
-            title={p.description}
-            onClick={() => onSelectPreset(p.name)}
-            className={`px-2.5 py-1 rounded border whitespace-nowrap ${
-              active === p.name
-                ? 'border-[var(--accent)] bg-[var(--panel-2)]'
-                : 'border-[var(--border)] hover:border-[var(--accent)]'
-            } ${p.is_exit_screen ? 'text-[var(--down)]' : ''}`}
-          >
-            {p.is_exit_screen ? '↓ ' : ''}
-            {p.name}
-          </button>
-        ))}
+        {presets.map((p, i) => {
+          // The universe browser is not a screen, so it is set apart rather
+          // than sitting in the run of them.
+          const dividerBefore =
+            (p.is_universe || p.is_exit_screen) &&
+            !presets[i - 1]?.is_universe &&
+            !presets[i - 1]?.is_exit_screen
+          return (
+            <span key={p.name} className="flex items-center gap-2">
+              {dividerBefore && (
+                <span aria-hidden className="w-px h-5 bg-[var(--border)]" />
+              )}
+              <button
+                title={p.description}
+                onClick={() => onSelectPreset(p.name)}
+                className={`px-2.5 py-1 rounded border whitespace-nowrap ${
+                  active === p.name
+                    ? 'border-[var(--accent)] bg-[var(--panel-2)]'
+                    : 'border-[var(--border)] hover:border-[var(--accent)]'
+                } ${p.is_exit_screen ? 'text-[var(--down)]' : ''} ${
+                  p.is_universe ? 'text-[var(--muted)]' : ''
+                }`}
+              >
+                {p.is_exit_screen ? '↓ ' : ''}
+                {p.is_universe ? '▦ ' : ''}
+                {p.name}
+              </button>
+            </span>
+          )
+        })}
         <div className="ml-auto flex items-center gap-2 whitespace-nowrap">
           <button
             className="px-2.5 py-1 rounded border border-[var(--border)] hover:border-[var(--accent)]"
@@ -209,6 +229,26 @@ export function Screener({
         <p className="px-3 py-1.5 text-[var(--muted)] border-b border-[var(--border)] leading-snug">
           {String(screen.definition.description ?? '')}
         </p>
+      )}
+
+      {isUniverse && (
+        <div className="px-3 py-1.5 border-b border-[var(--border)] bg-[var(--panel-2)] flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span>
+            <b>{rows.length}</b> constituents
+          </span>
+          <span className="text-[var(--up)]">
+            {eligibleCount} eligible for screens
+          </span>
+          <span className={rows.length - eligibleCount ? 'text-[var(--warn)]' : ''}>
+            {rows.length - eligibleCount} excluded
+          </span>
+          <span className="text-[var(--muted)]">
+            — excluded names are still ingested and charted; they are held out of screen
+            results for thin liquidity, short history, or a restricted series. Add the
+            <code className="mx-1 px-1 rounded bg-[var(--panel)]">is_eligible</code>
+            column to see which.
+          </span>
+        </div>
       )}
 
       {open && (

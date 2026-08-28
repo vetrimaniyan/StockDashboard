@@ -44,6 +44,7 @@ from alpha500.metrics.fingerprint import engine_fingerprint
 from alpha500.mktcal import calendar as cal
 from alpha500.screens.filter_engine import ScreenDefinitionError, run_screen
 from alpha500.screens.presets import (
+    ALL_CONSTITUENTS,
     MOMENTUM_BREAKDOWN,
     PULLBACK_REVERSAL,
     PRESETS,
@@ -209,6 +210,7 @@ def get_presets() -> list[PresetSummary]:
             name=name,
             description=str(definition.get("description", "")),
             is_exit_screen=name == MOMENTUM_BREAKDOWN,
+            is_universe=name == ALL_CONSTITUENTS,
         )
         for name, definition in PRESETS.items()
     ]

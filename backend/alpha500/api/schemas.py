@@ -102,6 +102,8 @@ class PresetSummary(BaseModel):
     name: str
     description: str
     is_exit_screen: bool = False
+    # The universe browser is not a screen and is shown apart from them.
+    is_universe: bool = False
     row_count: int | None = None
 
 

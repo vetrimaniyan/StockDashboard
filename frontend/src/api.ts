@@ -38,6 +38,7 @@ export interface PresetSummary {
   name: string
   description: string
   is_exit_screen: boolean
+  is_universe: boolean
 }
 
 export interface UniverseChange {
