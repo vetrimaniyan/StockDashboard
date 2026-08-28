@@ -175,6 +175,16 @@ export function Screener({
           >
             Filters {conditions.length ? `(${conditions.length})` : ''}
           </button>
+          <button
+            className={`px-2.5 py-1 rounded border hover:border-[var(--accent)] ${
+              columnsOpen
+                ? 'border-[var(--accent)] bg-[var(--panel-2)]'
+                : 'border-[var(--border)]'
+            }`}
+            onClick={() => setColumnsOpen((v) => !v)}
+          >
+            Columns ({columns.length})
+          </button>
           <span className="text-[var(--muted)]">Export</span>
           {(['xlsx', 'csv', 'html'] as const).map((fmt) => (
             <button
@@ -203,28 +213,6 @@ export function Screener({
 
       {open && (
         <div className="p-2 border-b border-[var(--border)] bg-[var(--panel-2)] space-y-1.5">
-          <div className="flex items-center gap-2 pb-1.5 border-b border-[var(--border)]">
-            <span className="text-[var(--muted)]">Columns</span>
-            <button
-              className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--panel)] hover:border-[var(--accent)]"
-              onClick={() => setColumnsOpen((v) => !v)}
-            >
-              {columnsOpen ? 'Hide' : 'Rearrange'} ({columns.length})
-            </button>
-            <span className="text-[var(--muted)] opacity-70">
-              drag to reorder, or use ← →
-            </span>
-          </div>
-          {columnsOpen && (
-            <ColumnPicker
-              available={available}
-              visible={columns}
-              definitions={definitions}
-              staticLabels={STATIC_LABELS}
-              onChange={setColumns}
-              onClose={() => setColumnsOpen(false)}
-            />
-          )}
           {conditions.length === 0 && (
             <p className="text-[var(--muted)]">
               No extra filters. These narrow the loaded preset results in the browser,
@@ -282,6 +270,17 @@ export function Screener({
             + Add condition
           </button>
         </div>
+      )}
+
+      {columnsOpen && (
+        <ColumnPicker
+          available={available}
+          visible={columns}
+          definitions={definitions}
+          staticLabels={STATIC_LABELS}
+          onChange={setColumns}
+          onClose={() => setColumnsOpen(false)}
+        />
       )}
 
       <div className="flex-1 min-h-0">
