@@ -6,9 +6,16 @@
  * filter references a column the loaded set does not carry.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api, type MetricDefinition, type PresetSummary, type ScreenResponse } from '../api'
+import { ColumnPicker } from './ColumnPicker'
 import { ResultsGrid } from './ResultsGrid'
+import {
+  STATIC_LABELS,
+  availableColumns,
+  loadColumns,
+  saveColumns,
+} from '../columns'
 
 interface Condition {
   id: number
@@ -81,6 +88,10 @@ export function Screener({
   const [nextId, setNextId] = useState(1)
   const [open, setOpen] = useState(false)
   const [exportNote, setExportNote] = useState<string | null>(null)
+  // Column choice lives here rather than in the grid so it sits beside the
+  // filter builder, which is where the operator is already shaping the view.
+  const [columns, setColumns] = useState<string[]>(() => loadColumns(active))
+  const [columnsOpen, setColumnsOpen] = useState(false)
 
   const runExport = async (fmt: 'xlsx' | 'csv' | 'html') => {
     if (!screen) return
@@ -128,6 +139,16 @@ export function Screener({
 
   const update = (id: number, patch: Partial<Condition>) =>
     setConditions((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+
+  useEffect(() => {
+    setColumns(loadColumns(active))
+  }, [active])
+
+  useEffect(() => {
+    saveColumns(active, columns)
+  }, [active, columns])
+
+  const available = useMemo(() => availableColumns(rows), [rows])
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -182,6 +203,28 @@ export function Screener({
 
       {open && (
         <div className="p-2 border-b border-[var(--border)] bg-[var(--panel-2)] space-y-1.5">
+          <div className="flex items-center gap-2 pb-1.5 border-b border-[var(--border)]">
+            <span className="text-[var(--muted)]">Columns</span>
+            <button
+              className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--panel)] hover:border-[var(--accent)]"
+              onClick={() => setColumnsOpen((v) => !v)}
+            >
+              {columnsOpen ? 'Hide' : 'Rearrange'} ({columns.length})
+            </button>
+            <span className="text-[var(--muted)] opacity-70">
+              drag to reorder, or use ← →
+            </span>
+          </div>
+          {columnsOpen && (
+            <ColumnPicker
+              available={available}
+              visible={columns}
+              definitions={definitions}
+              staticLabels={STATIC_LABELS}
+              onChange={setColumns}
+              onClose={() => setColumnsOpen(false)}
+            />
+          )}
           {conditions.length === 0 && (
             <p className="text-[var(--muted)]">
               No extra filters. These narrow the loaded preset results in the browser,
@@ -248,7 +291,7 @@ export function Screener({
           <ResultsGrid
             rows={rows}
             definitions={definitions}
-            storageKey={active}
+            visible={columns}
             onSelect={onSelectSymbol}
           />
         )}

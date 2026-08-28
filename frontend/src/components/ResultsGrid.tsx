@@ -19,43 +19,11 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { MetricDefinition, ScreenRow } from '../api'
+import { STATIC_LABELS } from '../columns'
 import { byUnit, directionClass, arrow, EM_DASH, isBlank } from '../format'
 import { CardList } from './CardList'
-import { ColumnPicker } from './ColumnPicker'
 
 const ROW_HEIGHT = 30
-
-export const DEFAULT_COLUMNS = [
-  'tradingsymbol',
-  'close',
-  'ret_1d',
-  'ret_1w',
-  'ret_1m',
-  'rs_rating',
-  'momentum_rank',
-  'momentum_score',
-  'exp_reg_r2_90',
-  'trend_template_score',
-  'range_position_52w',
-  'pct_from_52w_high',
-  'rel_volume',
-  'atr_pct_14',
-  'rsi_14',
-  'turnover_20d_median',
-  // NSE's constituent file publishes a macro "Industry" and no finer sector,
-  // so that is the classification the grid and heatmap both use.
-  'industry',
-]
-
-const STATIC_LABELS: Record<string, string> = {
-  tradingsymbol: 'Symbol',
-  name: 'Company',
-  sector: 'Sector',
-  industry: 'Industry',
-  close: 'Close',
-  volume: 'Volume',
-  delivery_pct: 'Delivery %',
-}
 
 const STATIC_UNITS: Record<string, string> = {
   close: 'currency',
@@ -73,21 +41,9 @@ const SIGNED = new Set([
 interface Props {
   rows: ScreenRow[]
   definitions: Map<string, MetricDefinition>
-  storageKey: string
+  /** Column order is owned by the Screener, beside the filter builder. */
+  visible: string[]
   onSelect?: (symbol: string) => void
-}
-
-function loadColumns(storageKey: string): string[] {
-  try {
-    const raw = localStorage.getItem(`grid:${storageKey}`)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed) && parsed.length) return parsed
-    }
-  } catch {
-    /* storage unavailable or corrupt; fall back to defaults */
-  }
-  return DEFAULT_COLUMNS
 }
 
 /** Heat shading for a value's position within its own column's range. */
@@ -118,34 +74,10 @@ function useIsNarrow(): boolean {
   return narrow
 }
 
-export function ResultsGrid({ rows, definitions, storageKey, onSelect }: Props) {
+export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
   const [sorting, setSorting] = useState<SortingState>([])
-  const [visible, setVisible] = useState<string[]>(() => loadColumns(storageKey))
-  const [pickerOpen, setPickerOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNarrow = useIsNarrow()
-
-  useEffect(() => {
-    setVisible(loadColumns(storageKey))
-  }, [storageKey])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(`grid:${storageKey}`, JSON.stringify(visible))
-    } catch {
-      /* persistence is a convenience, not a requirement */
-    }
-  }, [visible, storageKey])
-
-  const available = useMemo(() => {
-    const keys = new Set<string>()
-    for (const row of rows.slice(0, 5)) {
-      Object.keys(row).forEach((k) => keys.add(k))
-    }
-    keys.delete('instrument_token')
-    keys.delete('trade_date')
-    return Array.from(keys).sort()
-  }, [rows])
 
   // Per-column numeric range, for the conditional colour scales.
   const ranges = useMemo(() => {
@@ -258,7 +190,7 @@ export function ResultsGrid({ rows, definitions, storageKey, onSelect }: Props) 
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+      <div className="flex items-center px-3 py-2 border-b border-[var(--border)]">
         <span className="text-[var(--muted)]">
           {rows.length} row{rows.length === 1 ? '' : 's'}
           {sorting.length > 0 && (
@@ -268,24 +200,7 @@ export function ResultsGrid({ rows, definitions, storageKey, onSelect }: Props) 
           )}
           <span className="ml-2 opacity-60">· shift-click a header to add a sort</span>
         </span>
-        <button
-          className="px-2 py-1 rounded border border-[var(--border)] bg-[var(--panel-2)] hover:border-[var(--accent)]"
-          onClick={() => setPickerOpen((v) => !v)}
-        >
-          Columns ({visible.length})
-        </button>
       </div>
-
-      {pickerOpen && (
-        <ColumnPicker
-          available={available}
-          visible={visible}
-          definitions={definitions}
-          staticLabels={STATIC_LABELS}
-          onChange={setVisible}
-          onClose={() => setPickerOpen(false)}
-        />
-      )}
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
         <table className="w-full border-collapse" style={{ tableLayout: 'fixed' }}>
