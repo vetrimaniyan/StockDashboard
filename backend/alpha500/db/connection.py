@@ -148,6 +148,8 @@ def _migrate_metric_columns(conn: duckdb.DuckDBPyConnection) -> None:
     """
     from alpha500.metrics.engine import METRIC_COLUMNS
 
+    _rewrite_if_missing(conn, "instruments", ["float_shares", "float_shares_as_of"])
+
     existing = [
         row[0]
         for row in conn.execute(
@@ -178,3 +180,32 @@ def _migrate_metric_columns(conn: duckdb.DuckDBPyConnection) -> None:
         # Leave the original in place under its temporary name rather than
         # losing it; the failure is loud and the data is recoverable.
         raise
+
+
+def _rewrite_if_missing(
+    conn: duckdb.DuckDBPyConnection, table: str, expected: list[str]
+) -> None:
+    """Rebuild ``table`` through the current schema if any column is absent.
+
+    Same reasoning as the metrics migration: ALTER TABLE ADD COLUMN against a
+    table carrying a primary-key index corrupted DuckDB's ART index once
+    already, and a rewrite costs seconds.
+    """
+    existing = [
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = ? ORDER BY ordinal_position",
+            [table],
+        ).fetchall()
+    ]
+    if not existing or all(name in existing for name in expected):
+        return
+
+    carried = ", ".join(existing)
+    conn.execute(f"ALTER TABLE {table} RENAME TO {table}_migrating")
+    conn.execute(_read_sql("schema.sql"))
+    conn.execute(
+        f"INSERT INTO {table} ({carried}) SELECT {carried} FROM {table}_migrating"
+    )
+    conn.execute(f"DROP TABLE {table}_migrating")

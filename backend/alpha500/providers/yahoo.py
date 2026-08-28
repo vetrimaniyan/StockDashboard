@@ -112,6 +112,26 @@ class YahooProvider(MarketDataProvider):
             return ()
         return _frame_to_candles(frame)
 
+    def get_float_shares(self, instrument: Instrument) -> int | None:
+        """Free-float share count, or None when the vendor has no figure.
+
+        Free float rather than total shares: the NIFTY 500 is a free-float
+        market-cap weighted index. Note that ``fast_info.market_cap`` and
+        ``info["sharesOutstanding"]`` both return None for NSE tickers, so
+        ``floatShares`` is the field that actually carries a value.
+        """
+        import yfinance as yf
+
+        symbol = to_yahoo_symbol(instrument.tradingsymbol)
+
+        try:
+            self._bucket.acquire()
+            info = yf.Ticker(symbol).info
+            shares = info.get("floatShares") or info.get("sharesOutstanding")
+        except Exception:
+            return None
+        return int(shares) if shares and int(shares) > 0 else None
+
     def get_corporate_actions(self, instrument: Instrument) -> Sequence[CorporateAction]:
         """Splits and dividends as reported by Yahoo.
 

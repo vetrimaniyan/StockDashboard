@@ -139,7 +139,12 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
         # The one screen that does NOT hide ineligible rows.
         "universe": {"index": settings.index_name, "exclude_ineligible": False},
         "filters": {"op": "AND", "conditions": []},
-        "sort": [{"field": "tradingsymbol", "direction": "asc"}],
+        # Largest first, which is how the index itself is weighted. Symbols
+        # without a float-share count sort last rather than being guessed at.
+        "sort": [
+            {"field": "market_cap", "direction": "desc"},
+            {"field": "tradingsymbol", "direction": "asc"},
+        ],
         "limit": 500,
     },
     MOMENTUM_BREAKDOWN: {

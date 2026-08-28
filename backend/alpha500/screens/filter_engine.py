@@ -30,7 +30,10 @@ INSTRUMENT_FIELDS: Final[frozenset[str]] = frozenset(
     }
 )
 PRICE_FIELDS: Final[frozenset[str]] = frozenset(
-    {"close", "open", "high", "low", "volume", "delivery_pct", "traded_value"}
+    {"close", "open", "high", "low", "volume", "delivery_pct", "traded_value",
+     # Free-float capitalisation, computed rather than stored: float shares
+     # change rarely, the close changes daily.
+     "market_cap"}
 )
 ALLOWED_FIELDS: Final[frozenset[str]] = (
     frozenset(METRIC_COLUMNS) | INSTRUMENT_FIELDS | PRICE_FIELDS
@@ -56,6 +59,8 @@ class CompiledScreen:
 
 
 def _qualify(field: str) -> str:
+    if field == "market_cap":
+        return "o.close * i.float_shares"
     if field in INSTRUMENT_FIELDS:
         return f"i.{field}"
     if field in PRICE_FIELDS:
@@ -176,6 +181,7 @@ SELECT_COLUMNS: Final[str] = """
     i.tradingsymbol, i.name, i.sector, i.industry, i.series,
     m.instrument_token, m.trade_date,
     o.close, o.volume, o.delivery_pct,
+    o.close * i.float_shares AS market_cap,
     """ + ", ".join(f"m.{c}" for c in METRIC_COLUMNS)
 
 

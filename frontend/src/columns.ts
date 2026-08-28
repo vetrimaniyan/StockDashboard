@@ -9,6 +9,7 @@
 export const DEFAULT_COLUMNS = [
   'tradingsymbol',
   'close',
+  'market_cap',
   'ret_1d',
   'ret_1w',
   'ret_1m',
@@ -34,6 +35,8 @@ export const STATIC_LABELS: Record<string, string> = {
   sector: 'Sector',
   industry: 'Industry',
   close: 'Close',
+  market_cap: 'Market cap (free float)',
+  ineligible_reason: 'Excluded because',
   volume: 'Volume',
   delivery_pct: 'Delivery %',
 }

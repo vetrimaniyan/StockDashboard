@@ -26,6 +26,9 @@ import { CardList } from './CardList'
 const ROW_HEIGHT = 30
 
 const STATIC_UNITS: Record<string, string> = {
+  // byUnit switches to lakh/crore above 1e5, which is the only readable
+  // form for a capitalisation.
+  market_cap: 'currency',
   close: 'currency',
   volume: 'integer',
   delivery_pct: 'percent',

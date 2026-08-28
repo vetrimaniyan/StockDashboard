@@ -16,7 +16,12 @@ CREATE TABLE IF NOT EXISTS instruments (
     tick_size          DOUBLE,
     is_active          BOOLEAN NOT NULL DEFAULT TRUE,
     first_seen_date    DATE,
-    last_seen_date     DATE
+    last_seen_date     DATE,
+    -- Free float, not total shares: the NIFTY 500 is a free-float
+    -- market-cap weighted index, so free-float cap is the basis NSE
+    -- itself ranks constituents by (open item B-3).
+    float_shares       BIGINT,
+    float_shares_as_of DATE
 );
 
 CREATE TABLE IF NOT EXISTS index_membership (

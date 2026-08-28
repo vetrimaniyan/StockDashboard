@@ -257,6 +257,25 @@ def _print_backtest(name: str, result: Any) -> None:
         print(f"\n  !! {warning}")
 
 
+def cmd_marketcap(args: argparse.Namespace) -> int:
+    """Fetch free-float share counts so stocks can be ranked by size (B-3)."""
+    from alpha500.pipeline.floatshares import sync_float_shares
+
+    init_databases()
+    started = time.monotonic()
+    with analytical() as conn:
+        updated, failures = sync_float_shares(
+            conn, YahooProvider(), limit=args.limit, force=args.force,
+            progress=_progress,
+        )
+    elapsed = time.monotonic() - started
+    print(f"\nUpdated {updated} symbols in {elapsed:.0f}s")
+    if failures:
+        print(f"  {len(failures)} returned nothing: {', '.join(failures[:15])}")
+        print("  These sort last; market cap is null rather than guessed.")
+    return 0
+
+
 def cmd_reconcile(_args: argparse.Namespace) -> int:
     """FR-3.2 reconciliation — a release gate (NFR-5.4)."""
     with analytical(read_only=True) as conn:
@@ -367,6 +386,12 @@ def main(argv: list[str] | None = None) -> int:
     p_bt.add_argument("--walk-forward", action="store_true",
                       help="choose the stop in-sample, measure it out-of-sample")
 
+    p_mcap = sub.add_parser(
+        "marketcap", help="fetch free-float share counts for market-cap ranking"
+    )
+    p_mcap.add_argument("--limit", type=int, default=None)
+    p_mcap.add_argument("--force", action="store_true", help="refetch existing counts")
+
     p_serve = sub.add_parser("serve", help="start the API")
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)
@@ -388,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         "init": cmd_init, "universe": cmd_universe, "backfill": cmd_backfill,
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
         "materialise": cmd_materialise, "backtest": cmd_backtest,
+        "marketcap": cmd_marketcap,
         "reconcile": cmd_reconcile, "serve": cmd_serve,
     }
     return handlers[args.command](args)
