@@ -142,9 +142,10 @@ def valuation_summary(
     median rather than one computed from whatever happens to be there — the
     same rule section 5 applies to every other metric.
     """
-    latest = as_of or conn.execute(
+    newest = conn.execute(
         "SELECT max(trade_date) FROM index_valuation_daily"
-    ).fetchone()[0]
+    ).fetchone()
+    latest = as_of or (newest[0] if newest else None)
     if latest is None:
         return []
 
@@ -161,27 +162,32 @@ def valuation_summary(
         for label, years in (("median_pe_7y", 7), ("median_pe_10y", 10)):
             since = latest - timedelta(days=365 * years)
             stats = conn.execute(
-                "SELECT median(pe), count(pe), min(trade_date) "
+                "SELECT median(pe), count(pe), "
+                "count(DISTINCT date_trunc('quarter', trade_date)) "
                 "FROM index_valuation_daily "
                 "WHERE index_name = ? AND pe IS NOT NULL "
                 "AND trade_date BETWEEN ? AND ?",
                 [name, since, latest],
             ).fetchone()
 
-            # Sufficiency is about *span*, not observation count: the history
-            # is sampled weekly, so counting sessions would test the sampling
-            # cadence rather than whether the window is actually covered. The
-            # median must be backed by data reaching most of the way back, and
-            # by enough points to be a median at all.
-            observations = int(stats[1]) if stats else 0
-            earliest = stats[2] if stats else None
-            covered = (
-                earliest is not None
-                and (latest - earliest).days >= 365 * years * 0.8
+            # Sufficiency has to test *coverage across* the window, not its
+            # extent. Checking only that the oldest point is old enough passes
+            # a dataset clustered at the start: a part-loaded history once
+            # reported a "10-year median" computed from its first four years,
+            # and reported no 7-year median at all — a subset of the same
+            # window — which is how the flaw surfaced.
+            #
+            # Counting observations is equally wrong, since it measures the
+            # sampling cadence rather than the window. Counting populated
+            # quarters measures neither, and a gap anywhere shows up.
+            middle, observations, quarters = stats or (None, 0, 0)
+            expected_quarters = years * 4
+            sufficient = (
+                middle is not None
+                and quarters >= expected_quarters * 0.8
+                and observations >= 40
             )
-            medians[label] = (
-                float(stats[0]) if covered and observations >= 40 else None
-            )
+            medians[label] = float(middle) if sufficient else None
             coverage[label.replace("median_pe", "sessions")] = observations
 
         current = float(row[1]) if row and row[1] is not None else None
