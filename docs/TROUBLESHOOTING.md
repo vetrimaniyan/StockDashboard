@@ -1,0 +1,200 @@
+# Troubleshooting: "the dashboard doesn't work"
+
+The dashboard has three independent moving parts. Almost every incident is
+one of them, and they fail in visibly different ways. Identify which before
+changing anything.
+
+| What you see | Layer at fault |
+|---|---|
+| Browser can't connect / `ERR_CONNECTION_REFUSED` on :5173 | Vite dev server down |
+| Page renders, panels empty or spinning, console shows failed `/api/*` calls | API down |
+| Page renders with data and an amber **"Data is stale"** banner | API fine, pipeline failed |
+
+The third case is not a malfunction. It is FR-8.9 working: the app is
+refusing to pass yesterday's numbers off as today's. The data on screen is
+real, just old.
+
+---
+
+## First command, always
+
+```bash
+.venv/Scripts/python scripts/scheduler_status.py
+```
+
+Read-only and safe to run at any time, including while the API is serving.
+It works when the API is down, which is when you need it most. Exit code is
+`0` current, `1` unknown / never run, `2` stale.
+
+It answers, in order: is the API up, is a scheduler actually armed, what did
+the last run do stage by stage, and how old is the data.
+
+Two details worth knowing, because both mislead:
+
+- **"API up" and "scheduler armed" are separate lines and separate facts.**
+  Plain `serve` answers on the port while nothing is scheduled to fire. The
+  script inspects process command lines for `--with-scheduler` rather than
+  inferring it from the port.
+- **Freshness may be reported "via API".** `serve --with-scheduler` holds
+  DuckDB read-write, and DuckDB refuses even a read-only opener against a
+  live writer. The script falls back to `/api/status`, since a store locked
+  by the server implies the server is up. If you instead see
+  `Freshness: UNKNOWN`, something holds the store but is *not* serving —
+  look for a stray `pipeline` or `backfill` process.
+
+---
+
+## Layer 1 — Vite dev server
+
+```bash
+netstat -ano | findstr :5173
+```
+
+Nothing listening? Start it:
+
+```bash
+cd frontend && npm run dev
+```
+
+## Layer 2 — the API
+
+```bash
+curl -s http://127.0.0.1:8000/api/status
+```
+
+Vite proxies `/api` to `127.0.0.1:8000` (`frontend/vite.config.ts`). The API
+binds loopback only, by NFR-4.1 — that is deliberate, not a bug to route
+around.
+
+If it does not answer, nothing is serving. Start it:
+
+```bash
+.venv/Scripts/python -m alpha500.cli serve --with-scheduler
+```
+
+**Prefer `--with-scheduler` as the normal way to run.** Plain `serve` answers
+on the port and looks healthy while nothing is scheduled to fire — the status
+script reports these two facts separately for exactly this reason.
+
+Note that `serve` prints its "Scheduler started / Next run" banner on stdout,
+which is block-buffered when redirected to a file. Its absence from a log is
+not evidence the scheduler failed to arm; confirm with the status script
+instead of reading the log.
+
+### The API starts, then exits immediately
+
+Almost always the DuckDB single-writer rule (DECISIONS.md, D-6). A CLI
+pipeline, a backfill, or a second `serve --with-scheduler` already holds the
+store read-write. Find and stop the other writer:
+
+```bash
+Get-CimInstance Win32_Process -Filter "Name like '%python%'" | Select-Object ProcessId, CommandLine
+```
+
+Never run the CLI pipeline while the API serves with the scheduler attached.
+
+## Layer 3 — the nightly pipeline
+
+The scheduler is **in-process with the API** (SRS §2.1). It is not a Windows
+service and not a cron job. If the API process is not running at 18:45 IST,
+the run does not happen and nothing anywhere records that it didn't. A host
+that was asleep runs late instead, once, within a 6-hour misfire grace.
+
+Read the last run:
+
+```bash
+.venv/Scripts/python scripts/scheduler_status.py
+```
+
+Full stage history when you need more than the last run:
+
+```bash
+.venv/Scripts/python -c "import sqlite3;c=sqlite3.connect('data/app.sqlite');c.row_factory=sqlite3.Row;[print(dict(r)) for r in c.execute('SELECT run_id,stage,status,ended_at,message FROM job_runs ORDER BY id DESC LIMIT 30')]"
+```
+
+Stage statuses are `RUNNING` / `OK` / `FAILED` / `SKIPPED`. A stage stuck at
+`RUNNING` with no terminal row means the process died mid-stage — look for a
+crash or a machine that slept, not for a logic error.
+
+### Re-running after a failure
+
+Stop the API first (single writer), then:
+
+```bash
+.venv/Scripts/python -m alpha500.cli pipeline
+```
+
+Target a specific missed session:
+
+```bash
+.venv/Scripts/python -m alpha500.cli pipeline --date 2026-08-28
+```
+
+If prices landed but metrics look wrong, recompute without re-ingesting:
+
+```bash
+.venv/Scripts/python -m alpha500.cli rebuild
+```
+
+Then restart the API.
+
+---
+
+## Known failure modes
+
+### `_inst_stage has N columns but 15 values were supplied` — fixed
+
+Seen on the 2026-08-28 run. `sync_instruments` failed, the run aborted, and
+data froze at the previous session.
+
+`upsert_instruments` in `backend/alpha500/db/store.py` built its staging
+table with `SELECT * FROM instruments LIMIT 0`, so the stage always had as
+many columns as `instruments` — but the `INSERT ... VALUES` beneath it was
+positional with a hardcoded 15 placeholders. `float_shares`,
+`float_shares_as_of` and `index_tier` took the table to 18 and broke it.
+
+Now fixed: both the stage load and the tail `INSERT INTO instruments` name
+their columns from `_INSTRUMENT_STAGE_COLUMNS`, so the statement no longer
+depends on the table's width.
+
+**If you add a column to `instruments`, decide who owns it.** Columns the
+universe sync populates belong in `_INSTRUMENT_STAGE_COLUMNS`. Columns owned
+by another command — as `float_shares` is owned by `marketcap` and
+`index_tier` by `indices` — must stay out of it, or a nightly sync will
+overwrite them with nulls. This path has no test coverage, which is why the
+original regression shipped.
+
+### Stale banner on a non-trading day
+
+Not a fault. `is_trading_day` gates the run; weekends and NSE holidays are
+skipped by design and the data legitimately stays at the last session.
+
+### `engine_stale` true in `/api/status`
+
+Served metrics were computed by a code version no longer in the tree. Not a
+crash — the numbers are stale in a way a date cannot show. Fix:
+
+```bash
+.venv/Scripts/python -m alpha500.cli rebuild
+```
+
+### Checking IST on a Windows host
+
+`TZ=Asia/Kolkata date` under Git Bash silently reports UTC. It will make a
+correctly-scheduled job look wrong. Use the same source the scheduler uses:
+
+```bash
+.venv/Scripts/python -c "from datetime import datetime; from zoneinfo import ZoneInfo; print(datetime.now(ZoneInfo('Asia/Kolkata')))"
+```
+
+---
+
+## Recovery, in order
+
+1. `scripts/scheduler_status.py` — decide which layer is at fault.
+2. API down → start `serve --with-scheduler`. Dashboard returns immediately,
+   serving the last good session with a stale banner. **This restores the UI
+   without touching data.**
+3. Data stale → stop the API, run `pipeline`, restart.
+4. Pipeline fails again → read the `message` on the `FAILED` stage. That
+   column carries the actual exception; it is the fastest route to a cause.

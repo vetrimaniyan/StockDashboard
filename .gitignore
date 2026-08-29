@@ -19,6 +19,7 @@ data/*.sqlite
 data/*.sqlite-journal
 data/cache/
 data/backups/
+data/*.log
 
 # Exports
 exports/
