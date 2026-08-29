@@ -20,6 +20,17 @@ _OHLCV_STAGE_COLUMNS = (
     "source", "ingested_at",
 )
 
+# The columns a universe sync actually knows about. Deliberately not "every
+# column in instruments": float_shares, float_shares_as_of and index_tier are
+# owned by the marketcap and indices commands, and a sync must leave them
+# alone. Naming them here also keeps the INSERT below independent of the
+# table's width, so adding a column cannot silently break the nightly run.
+_INSTRUMENT_STAGE_COLUMNS = (
+    "instrument_token", "exchange_token", "tradingsymbol", "name", "isin",
+    "series", "exchange", "industry", "sector", "basic_industry",
+    "lot_size", "tick_size", "is_active", "first_seen_date", "last_seen_date",
+)
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -60,10 +71,13 @@ def upsert_instruments(conn: duckdb.DuckDBPyConnection, instruments: Sequence[In
         )
         for i in instruments
     ]
-    conn.execute("CREATE OR REPLACE TEMP TABLE _inst_stage AS SELECT * FROM instruments LIMIT 0")
-    conn.executemany(
-        "INSERT INTO _inst_stage VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows
+    cols = ", ".join(_INSTRUMENT_STAGE_COLUMNS)
+    placeholders = ",".join("?" * len(_INSTRUMENT_STAGE_COLUMNS))
+    conn.execute(
+        f"CREATE OR REPLACE TEMP TABLE _inst_stage AS "
+        f"SELECT {cols} FROM instruments LIMIT 0"
     )
+    conn.executemany(f"INSERT INTO _inst_stage ({cols}) VALUES ({placeholders})", rows)
     conn.execute(
         """
         UPDATE instruments AS t
@@ -80,11 +94,15 @@ def upsert_instruments(conn: duckdb.DuckDBPyConnection, instruments: Sequence[In
          WHERE t.instrument_token = s.instrument_token
         """
     )
+    # Named on both sides for the same reason as the stage load: an unnamed
+    # INSERT ... SELECT s.* breaks the moment instruments gains a column the
+    # sync does not populate. Columns omitted here take their schema default.
     conn.execute(
-        """
-        INSERT INTO instruments
-        SELECT s.* FROM _inst_stage s
-        WHERE NOT EXISTS (
+        f"""
+        INSERT INTO instruments ({cols})
+        SELECT {', '.join('s.' + c for c in _INSTRUMENT_STAGE_COLUMNS)}
+          FROM _inst_stage s
+         WHERE NOT EXISTS (
             SELECT 1 FROM instruments t WHERE t.instrument_token = s.instrument_token
         )
         """
