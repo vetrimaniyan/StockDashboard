@@ -21,6 +21,10 @@ export const DEFAULT_COLUMNS = [
   'trend_template_score',
   'range_position_52w',
   'pct_from_52w_high',
+  // Shown together on purpose: the period high means little without the depth
+  // it was measured over, which varies from months to years by symbol.
+  'pct_from_period_high',
+  'history_days',
   'rel_volume',
   'atr_pct_14',
   'rsi_14',
@@ -29,6 +33,32 @@ export const DEFAULT_COLUMNS = [
   // so that is the classification the grid and heatmap both use.
   'industry',
 ]
+
+/** Size tier codes as stored, mapped to the index's published name.
+ *
+ * The store keeps NSE's own constituent-file keys so a screen filter matches
+ * what the provider publishes; only the display is prettified. Mirrors
+ * TIER_LABELS in backend/alpha500/pipeline/indices.py — the NIFTY 500 is
+ * exactly these four lists, so an unmapped code means the sync found a fifth
+ * and is shown raw rather than hidden.
+ */
+export const TIER_LABELS: Record<string, string> = {
+  NIFTY50: 'Nifty 50',
+  NIFTYNEXT50: 'Next 50',
+  NIFTYMIDCAP150: 'Midcap 150',
+  NIFTYSMALLCAP250: 'Smallcap 250',
+}
+
+/** Columns whose values are text, not numbers.
+ *
+ * Kept here rather than inline in the grid: a string column formatted as a
+ * number renders NaN, which is how index_tier and ineligible_reason were
+ * both displaying.
+ */
+export const TEXT_COLUMNS: ReadonlySet<string> = new Set([
+  'tradingsymbol', 'name', 'sector', 'industry', 'series',
+  'index_tier', 'ineligible_reason',
+])
 
 export const STATIC_LABELS: Record<string, string> = {
   tradingsymbol: 'Symbol',

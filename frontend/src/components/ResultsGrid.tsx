@@ -19,7 +19,7 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { MetricDefinition, ScreenRow } from '../api'
-import { STATIC_LABELS } from '../columns'
+import { STATIC_LABELS, TEXT_COLUMNS, TIER_LABELS } from '../columns'
 import { byUnit, directionClass, arrow, EM_DASH, isBlank } from '../format'
 import { CardList } from './CardList'
 
@@ -39,6 +39,9 @@ const SIGNED = new Set([
   'ret_1d', 'ret_1w', 'ret_1m', 'ret_3m', 'ret_6m', 'ret_9m', 'ret_12m',
   'ret_12m_1m', 'rs_1m', 'rs_3m', 'rs_6m', 'rs_12m', 'sma_200_slope_1m',
   'pct_from_52w_high', 'pct_above_52w_low', 'composite_z', 'macd_hist',
+  // Same quantity as pct_from_52w_high over a longer window; formatting them
+  // differently in adjacent columns reads as a difference in kind.
+  'pct_from_period_high',
 ])
 
 interface Props {
@@ -106,7 +109,7 @@ export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
       const label = def?.label ?? STATIC_LABELS[key] ?? key
       const unit = def?.unit ?? STATIC_UNITS[key]
       const isSymbol = key === 'tradingsymbol'
-      const isText = isSymbol || key === 'name' || key === 'sector' || key === 'industry'
+      const isText = TEXT_COLUMNS.has(key)
 
       return {
         id: key,
@@ -137,7 +140,13 @@ export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
               </button>
             )
           }
-          if (isText) return <span>{value == null ? EM_DASH : String(value)}</span>
+          // typeof guards the case TEXT_COLUMNS misses: any string column added
+          // later would otherwise reach byUnit below and render as NaN.
+          if (isText || typeof value === 'string') {
+            if (value == null) return <span>{EM_DASH}</span>
+            const text = String(value)
+            return <span>{key === 'index_tier' ? TIER_LABELS[text] ?? text : text}</span>
+          }
           if (typeof value === 'boolean') {
             return (
               <span className={value ? 'text-[var(--up)]' : 'text-[var(--muted)]'}>
