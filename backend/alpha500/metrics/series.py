@@ -107,6 +107,19 @@ def compute_series_metrics(
         cols["range_position_52w"] = np.where(span > 0, (close - low_52w) / span, np.nan)
     cols["days_since_52w_high"] = k.sessions_since_rolling_max(high, p.WEEKS_52)
 
+    # --- period high -----------------------------------------------------
+    # The highest high in everything stored for this symbol, excluding today.
+    # Deliberately NOT called an all-time high: depth is whatever was
+    # backfilled (history_days says how much), so this is a true all-time
+    # high only for symbols that listed inside the window. Naming it "period"
+    # keeps the UI from claiming more than the data supports.
+    high_period = k.prior_expanding_max(high)
+    cols["high_period"] = high_period
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cols["pct_from_period_high"] = np.where(
+            high_period > 0, close / high_period - 1.0, np.nan
+        )
+
     # --- momentum score (5.4) -------------------------------------------
     lookback = settings.momentum_lookback
     slope, r2 = k.rolling_log_regression(close, lookback)

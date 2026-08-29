@@ -32,6 +32,7 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "sma_200_slope_1m", "ma_alignment",
     "high_52w", "low_52w", "pct_from_52w_high", "pct_above_52w_low",
     "range_position_52w", "days_since_52w_high",
+    "high_period", "pct_from_period_high",
     "exp_reg_slope_90", "exp_reg_r2_90", "momentum_score", "momentum_rank", "composite_z",
     "atr_14", "atr_pct_14", "stdev_21", "stdev_63", "adr_pct_20",
     "vol_sma_20", "vol_sma_50", "rel_volume", "turnover_20d_median", "delivery_pct_sma_20",

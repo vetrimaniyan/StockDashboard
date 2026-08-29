@@ -105,10 +105,39 @@ PRESET_PLAIN = {
     "Pullback + Reversal": ("Entry", "Pulled back to an identified support level AND showing "
         "active evidence the fall has stopped. A timing signal — different from the screen "
         "above, not a variant of it."),
+    "Approaching High": ("Entry", "Stocks within 3% of the highest price in their stored "
+        "history, still trending and still being traded — the setup before the breakout "
+        "rather than after it. Note this is not an all-time high: the lookback is however "
+        "much history has been backfilled, which varies by symbol and is shown as History "
+        "(sessions). Names that have already cleared the high appear in 52-Week High "
+        "Breakout instead."),
     "Momentum Breakdown": ("EXIT", "Holdings whose momentum rank has collapsed or that have "
         "lost the 100 SMA. This is an exit list for positions you already hold. It is never a "
         "list of stocks to short."),
 }
+
+# Counted, not written out. "The seven screens" survived exactly one screen
+# being added before it was wrong, which is the drift this generator exists to
+# prevent. A preset absent from PRESET_PLAIN is the universe browser, not a
+# screen, so it is not counted as one.
+_SCREENS = [n for n in PRESETS if n in PRESET_PLAIN]
+_ENTRY_SCREENS = [n for n in _SCREENS if PRESET_PLAIN[n][0] == "Entry"]
+_EXIT_SCREENS = [n for n in _SCREENS if PRESET_PLAIN[n][0] != "Entry"]
+
+_WORDS = {
+    1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six",
+    7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+}
+
+
+def _word(n: int) -> str:
+    return _WORDS.get(n, str(n))
+
+
+SCREEN_COUNT_WORD = _word(len(_SCREENS))
+ENTRY_COUNT_WORD = _word(len(_ENTRY_SCREENS)).capitalize()
+EXIT_COUNT_WORD = _word(len(_EXIT_SCREENS))
+
 
 def render_conditions(node, depth=0):
     if "conditions" not in node:
@@ -291,7 +320,7 @@ footer code{{font-family:var(--mono);background:var(--surface-2);padding:1px 5px
   <a href="#tabs">The three tabs</a>
   <div class="tt">Using it</div>
   <a href="#dashboard">Reading the dashboard</a>
-  <a href="#presets">The seven screens</a>
+  <a href="#presets">The {SCREEN_COUNT_WORD} screens</a>
   <a href="#filters">Filters &amp; columns</a>
   <a href="#backtest">The backtest tab</a>
   <div class="tt">Reference</div>
@@ -407,8 +436,8 @@ footer code{{font-family:var(--mono);background:var(--surface-2);padding:1px 5px
 </section>
 
 <section class="block" id="presets">
-  <h2>The seven screens</h2>
-  <p class="lede">Six find entries. One finds exits, and is marked in red everywhere it
+  <h2>The {SCREEN_COUNT_WORD} screens</h2>
+  <p class="lede">{ENTRY_COUNT_WORD} find entries. {EXIT_COUNT_WORD.capitalize()} finds exits, and is marked in red everywhere it
   appears.</p>
   {preset_cards}
   <div class="note"><p><strong>Two pullback screens, on purpose.</strong> “Pullback to
@@ -568,7 +597,7 @@ footer code{{font-family:var(--mono);background:var(--surface-2);padding:1px 5px
 </main>
 
 <footer>
-  Generated from the live metric registry — {len(METRICS)} metrics, {len(PRESETS)} screens.
+  Generated from the live metric registry — {len(METRICS)} metrics, {len(_SCREENS)} screens.
   Regenerate with <code>alpha500</code>'s registry after any metric change so this manual and
   the application cannot disagree. Decision support only; no orders are placed.
 </footer>
@@ -603,7 +632,7 @@ footer code{{font-family:var(--mono);background:var(--surface-2);padding:1px 5px
 def main() -> int:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(HTML, encoding="utf-8")
-    print(f"Wrote {OUT} ({len(METRICS)} metrics, {len(PRESETS)} screens)")
+    print(f"Wrote {OUT} ({len(METRICS)} metrics, {len(_SCREENS)} screens)")
     return 0
 
 

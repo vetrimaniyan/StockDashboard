@@ -8,7 +8,11 @@ Generated from `alpha500.metrics.registry`. Do not edit by hand — regenerate w
 |---|---|---|
 | `ret_1d` | `C_0 / C_1 - 1` | Latest session's price change. |
 | `ret_1w` | `C_0 / C_5 - 1` | Return over the last 5 trading sessions. |
+| `ret_2w` | `C_0 / C_10 - 1` | Return over the last 10 trading sessions. |
+| `ret_3w` | `C_0 / C_15 - 1` | Return over the last 15 trading sessions. |
 | `ret_1m` | `C_0 / C_21 - 1` | Return over the last 21 trading sessions. |
+| `ret_2m` | `C_0 / C_42 - 1` | Return over the last 42 trading sessions. A lookback to a single point 42 sessions ago - not to be confused with ret_3m_2m, which measures an interval. |
+| `ret_3m_2m` | `C_42 / C_63 - 1` | Return earned *across* the interval from 63 sessions ago to 42 sessions ago. Answers 'how did it do during that month', where ret_2m answers 'how far is it above where it stood then'. |
 | `ret_3m` | `C_0 / C_63 - 1` | Return over the last 63 trading sessions. |
 | `ret_6m` | `C_0 / C_126 - 1` | Return over the last 126 trading sessions. |
 | `ret_9m` | `C_0 / C_189 - 1` | Return over the last 189 trading sessions. |
@@ -63,6 +67,13 @@ Generated from `alpha500.metrics.registry`. Do not edit by hand — regenerate w
 | `range_position_52w` | `(C_0 - low_52w) / (high_52w - low_52w)` | 0 = at the 52-week low, 1 = at the high. |
 | `days_since_52w_high` | `sessions elapsed since high_52w was set` | 0 means the high is today's bar. |
 
+## Period high
+
+| Metric | Formula | Meaning |
+|---|---|---|
+| `high_period` | `max(High) over all stored sessions before today` | Highest intraday high in this symbol's stored history, excluding today's bar. NOT an all-time high: the lookback is however much history was backfilled, which history_days reports per symbol. It is a true all-time high only for symbols listed inside that window. |
+| `pct_from_period_high` | `C_0 / high_period - 1` | Negative below the period high, 0 or above once today's close has taken it out. Read alongside history_days, which says how deep the high actually reaches. |
+
 ## Volatility
 
 | Metric | Formula | Meaning |
@@ -103,6 +114,13 @@ Generated from `alpha500.metrics.registry`. Do not edit by hand — regenerate w
 | `is_in_base` | `depth <= 15% AND ATR contracting AND prior advance >= 25%` | Volatility contraction after a strong advance — the setup that precedes most clean breakouts, which is how candidates surface before the move rather than after it. |
 | `base_depth_pct` | `(max(High) - min(Low)) / max(High) over the window` | Tightness of the consolidation. |
 | `base_length_days` | `consecutive sessions the base has held` | How long the contraction has persisted. |
+| `support_level` | `highest confirmed swing low, sma_50 or ema_21 at or below C_0` | Nearest level beneath price where buyers previously appeared. Null at a new high, where nothing sits below. |
+| `support_distance_pct` | `C_0 / support_level - 1` | How far price sits above its nearest support. |
+| `is_at_support` | `support_distance_pct <= 3%` | Price is within the tolerance band of its support level. |
+| `pullback_from_high_pct` | `C_0 / max(High over 21 sessions) - 1` | How far price has retraced from its recent high. |
+| `reversal_score` | `count of 5 checks: R1..R5` | RSI turning up from oversold, MACD histogram improving, price reclaiming ema_21, a close in the top third of the bar's range, and volume confirmation. 0-5. |
+| `is_reversal` | `reversal_score >= 2` | At least two independent reversal checks agree. |
+| `is_pullback_reversal` | `at support AND pullback 3-25% AND reversal AND C_0 > sma_200` | Pulled back to a support level and showing confirmation the pullback has stopped, with the long-term uptrend intact. |
 | `is_pullback` | `trend template AND within 3% of ema_21 or sma_50 AND ret_1w < 0 AND RSI 40-55` | Pullback within an established uptrend. |
 
 ## Data quality
@@ -110,4 +128,5 @@ Generated from `alpha500.metrics.registry`. Do not edit by hand — regenerate w
 | Metric | Formula | Meaning |
 |---|---|---|
 | `history_days` | `count of stored sessions` | Fewer than 252 sessions is insufficient for 52-week and 12-month metrics. |
+| `ineligible_reason` | `series / surveillance / insufficient history / below liquidity floor` | Which rule holds this symbol out of screen results. Empty when eligible. Excluded names are still ingested and charted (FR-1.5). |
 | `is_eligible` | `series in (EQ, BE) AND history >= 252 AND turnover >= floor AND not flagged` | Whether the symbol may appear in screen results. Ineligible names are still ingested and stored. |

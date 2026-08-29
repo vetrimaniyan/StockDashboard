@@ -19,6 +19,17 @@ MOMENTUM_BREAKDOWN: Final[str] = "Momentum Breakdown"
 # a different setup rather than a variant of this one.
 PULLBACK_REVERSAL: Final[str] = "Pullback + Reversal"
 
+# Stocks pressing against the top of their stored history. Named "period high"
+# rather than "all-time high" on purpose: the lookback is however much history
+# was backfilled, so for a long-listed name this is a multi-year high, not an
+# all-time one. Claiming otherwise in the UI would be exactly the kind of quiet
+# overstatement FR-8.9 exists to prevent.
+APPROACHING_HIGH: Final[str] = "Approaching High"
+
+# Within 3% of the period high. Tight enough that the list stays actionable;
+# widen it in the Filters panel for a broader sweep.
+APPROACHING_HIGH_PCT: Final[float] = -0.03
+
 # Not a screen but the universe itself: every constituent, including the ones
 # the screens deliberately exclude. FR-1.5 requires symbols dropped for thin
 # liquidity or short history to be visible somewhere rather than silently
@@ -128,6 +139,44 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
             {"field": "instrument_token", "direction": "asc"},
         ],
         "limit": 10,
+    },
+    APPROACHING_HIGH: {
+        "name": APPROACHING_HIGH,
+        "version": 1,
+        "description": (
+            "Within 3% of the highest price in stored history, trend intact "
+            "and volume holding up — before the breakout, not after. Depth "
+            "varies by symbol: check History (sessions) for how far back the "
+            "high actually reaches."
+        ),
+        "universe": {"index": settings.index_name, "exclude_ineligible": True},
+        "filters": {
+            "op": "AND",
+            "conditions": [
+                {"field": "pct_from_period_high", "operator": ">=",
+                 "value": APPROACHING_HIGH_PCT},
+                # Strictly below: at or above zero the stock has already taken
+                # the high out, which is the 52-Week High Breakout screen's job.
+                {"field": "pct_from_period_high", "operator": "<", "value": 0.0},
+                # Trend intact. A graded score rather than the full 8/8
+                # template: demanding perfection here would mostly return the
+                # Trend Template screen back again.
+                {"field": "trend_template_score", "operator": ">=", "value": 5},
+                # Volume holding up. Not a surge — that is what confirms a
+                # breakout, and by definition it has not happened yet — but
+                # enough to rule out a name drifting up on no interest.
+                {"field": "rel_volume", "operator": ">=", "value": 0.8},
+                {"field": "gap_disqualified", "operator": "=", "value": False},
+            ],
+        },
+        # Closest to the high first, then relative strength, then the primary
+        # key so ties cannot reorder between runs (AR-4).
+        "sort": [
+            {"field": "pct_from_period_high", "direction": "desc"},
+            {"field": "rs_rating", "direction": "desc"},
+            {"field": "instrument_token", "direction": "asc"},
+        ],
+        "limit": 50,
     },
     ALL_CONSTITUENTS: {
         "name": ALL_CONSTITUENTS,

@@ -140,6 +140,28 @@ def _rolling_extreme(values: Floats, window: int, fn) -> Floats:  # type: ignore
     return out
 
 
+def prior_expanding_max(values: Floats) -> Floats:
+    """Highest value over every bar STRICTLY BEFORE each position.
+
+    Backs the period high. Excluding the current bar is what separates
+    "approaching the high" from "made the high today": were today included,
+    a new high would read as 0% away and the two states would be
+    indistinguishable. ``_prior_rolling_max`` in series.py does the same for
+    fixed windows, for the same reason.
+
+    Uses ``fmax`` rather than ``max``, unlike ``rolling_max`` above. In a
+    rolling window a NaN ages out after ``window`` bars; in an expanding one
+    a single NaN would poison every subsequent value to the end of the
+    series. Skipping them keeps a symbol with one bad session usable.
+    """
+    n = values.size
+    out = _empty_like(n)
+    if n < 2:
+        return out
+    out[1:] = np.fmax.accumulate(values)[:-1]
+    return out
+
+
 def rolling_median(values: Floats, window: int) -> Floats:
     n = values.size
     out = _empty_like(n)

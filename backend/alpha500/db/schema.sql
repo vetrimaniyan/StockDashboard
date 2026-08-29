@@ -83,6 +83,10 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
     pct_from_52w_high DOUBLE, pct_above_52w_low DOUBLE,
     range_position_52w DOUBLE,
     days_since_52w_high INTEGER,
+    -- Highest high over all stored history, excluding the current bar. Not an
+    -- all-time high: depth is whatever was backfilled (see history_days).
+    high_period DOUBLE,
+    pct_from_period_high DOUBLE,
     exp_reg_slope_90 DOUBLE,
     exp_reg_r2_90 DOUBLE,
     momentum_score DOUBLE,

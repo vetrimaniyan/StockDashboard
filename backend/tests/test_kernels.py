@@ -125,6 +125,41 @@ def test_rolling_std_is_sample_not_population():
     assert out[2] == pytest.approx(1.0)
 
 
+def test_prior_expanding_max_excludes_the_current_bar():
+    """Highs 10,12,11,15,13. Each bar sees only what came before it.
+
+    idx0: nothing before      -> NaN
+    idx1: max(10)             -> 10
+    idx2: max(10,12)          -> 12
+    idx3: max(10,12,11)       -> 12
+    idx4: max(10,12,11,15)    -> 15
+
+    idx4 is the case that matters: 15 was set on the previous bar, so a close
+    of 13 must read as below the high, not at it.
+    """
+    out = k.prior_expanding_max(arr(10, 12, 11, 15, 13))
+    assert math.isnan(out[0])
+    assert out[1:].tolist() == pytest.approx([10, 12, 12, 15])
+
+
+def test_prior_expanding_max_skips_nan_rather_than_propagating():
+    """One missing session must not void every value after it.
+
+    Highs 10,NaN,11,9: idx2 sees (10,NaN) -> 10, idx3 sees (10,NaN,11) -> 11.
+    np.maximum would return NaN from idx2 onward, permanently.
+    """
+    out = k.prior_expanding_max(arr(10, float("nan"), 11, 9))
+    assert math.isnan(out[0])
+    assert out[1] == pytest.approx(10.0)
+    assert out[2] == pytest.approx(10.0)
+    assert out[3] == pytest.approx(11.0)
+
+
+def test_prior_expanding_max_needs_a_prior_bar():
+    """FR-6.1: a single bar has no history, so no high — never the bar itself."""
+    assert np.isnan(k.prior_expanding_max(arr(10))).all()
+
+
 def test_sessions_since_rolling_max():
     """0 means the window maximum is today's bar."""
     # Highs 1,5,2,3 with window 3: at idx2 window is (1,5,2), max at 1 back.

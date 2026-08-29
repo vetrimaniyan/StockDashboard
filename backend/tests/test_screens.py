@@ -203,6 +203,34 @@ def test_every_preset_compiles():
         assert compiled.where_sql, f"{name} produced an empty predicate"
 
 
+def test_approaching_high_excludes_names_that_already_broke_out():
+    """"About to break" must stop at the high, not span it.
+
+    Without the strict upper bound the screen would also return everything
+    that took the high out today, which is the 52-Week High Breakout screen's
+    job and would make this one indistinguishable from it.
+    """
+    conditions = PRESETS["Approaching High"]["filters"]["conditions"]
+    bounds = {
+        (c["operator"], c["value"])
+        for c in conditions
+        if c["field"] == "pct_from_period_high"
+    }
+    assert (">=", -0.03) in bounds, "lost the 3% proximity floor"
+    assert ("<", 0.0) in bounds, "would include names already through the high"
+
+
+def test_approaching_high_does_not_claim_to_be_an_all_time_high():
+    """The stored lookback is whatever was backfilled, so ATH would overstate it.
+
+    history_days reports the real depth per symbol; the description has to
+    point at it rather than implying every name reaches back to listing.
+    """
+    description = PRESETS["Approaching High"]["description"].lower()
+    assert "all-time" not in description
+    assert "stored history" in description
+
+
 def test_momentum_breakdown_is_labelled_as_an_exit_screen():
     """FR-12.2: it must not read as a short-candidate list."""
     description = PRESETS["Momentum Breakdown"]["description"].lower()

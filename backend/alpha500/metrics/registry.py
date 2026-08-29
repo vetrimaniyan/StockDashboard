@@ -154,6 +154,19 @@ REGISTRY: Final[tuple[MetricDef, ...]] = (
        "sessions elapsed since high_52w was set",
        "0 means the high is today's bar.", "52-week", "integer", False),
 
+    # --- period high -----------------------------------------------------
+    _m("high_period", "Period high",
+       "max(High) over all stored sessions before today",
+       "Highest intraday high in this symbol's stored history, excluding "
+       "today's bar. NOT an all-time high: the lookback is however much "
+       "history was backfilled, which history_days reports per symbol. It is "
+       "a true all-time high only for symbols listed inside that window.",
+       "Period high", "currency"),
+    _m("pct_from_period_high", "% from period high", "C_0 / high_period - 1",
+       "Negative below the period high, 0 or above once today's close has "
+       "taken it out. Read alongside history_days, which says how deep the "
+       "high actually reaches.", "Period high", "percent", True),
+
     # --- volatility ------------------------------------------------------
     _m("atr_14", "ATR 14", "Wilder-smoothed 14-period mean of true range",
        "Average true range. Drives the stop distance and position size.",
