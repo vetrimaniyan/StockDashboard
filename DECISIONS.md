@@ -134,6 +134,19 @@ should not run concurrently with a served API.
 
 ## D-7 — Backfill stays at five years; acceptance criterion 1 is waived
 
+> **Superseded in part by D-9 (2026-08-27).** The depth decision below no
+> longer describes this deployment: it runs on **eight years**, 1 985 sessions
+> from 2018-08-17. The `--years 5` CLI default is unchanged, so a plain
+> `backfill` still fetches five — pass `--years 8`. The closing advice to
+> "pass `--years 6` when Phase 3 begins" is obsolete; six was never run and
+> eight superseded it.
+>
+> The waiver of acceptance criterion 1 **stands**, but not for the reason
+> given here. D-9 found the 1 260-session floor structurally unachievable at
+> any depth, because a current-constituent universe always contains recent
+> IPOs. The reasoning below — that the shortfall is an artefact of NSE trading
+> 247 days a year — is true but incidental.
+
 **Decision.** `alpha500 backfill` defaults to `--years 5`, by operator
 decision on 2026-08-26.
 
@@ -194,7 +207,12 @@ anything is broken.
 
 ---
 
-## D-9 — Five years of history is now the binding constraint on backtesting
+## D-9 — Five years was too short; history extended to eight
+
+> **Resolved 2026-08-27.** This deployment runs on eight years, 1 985 sessions
+> from 2018-08-17. The heading previously stated only the problem, which read
+> as though five years were still the operating depth. Supersedes D-7 on
+> depth; see the Actioned block below for the measured effect.
 
 **Context.** D-7 waived the 1 260-session floor and kept the backfill at five
 years. Phase 3 has now made the cost of that visible: eligibility needs 252
@@ -240,3 +258,5 @@ originally gave.
 | B-5 | NRI TDS mechanics and rates | Open. Defaults are configurable placeholders and must be confirmed with a cross-border CA before Phase 2 release. |
 | B-6 | French declaration and foreign tax credit | Open. Not yet implemented. |
 | B-7 | Portfolio value source for sizing | Open. Currently a manual input to the sizing endpoint. |
+| B-8 | Records stated five years of history; the store holds eight | **Resolved 2026-08-31** — README and D-7 corrected, D-9 heading now names its resolution. Detail in `docs/URD.md` §8. |
+| B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | Open. Not a code regression — measured at 115.1 s with that day's changes stashed. Cause uninvestigated; the store has grown to 842k rows from the 562k the old benchmark used. |

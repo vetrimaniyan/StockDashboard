@@ -15,7 +15,7 @@ cancelling one.
 |---|---|
 | Provider abstraction (AR-1) | NSE archives, Yahoo, CSV fixtures |
 | Universe sync (FR-1.x) | 500 NIFTY constituents, membership as an SCD |
-| Backfill and incremental ingest | 5-year history; nightly bhavcopy + delivery |
+| Backfill and incremental ingest | 8-year history; nightly bhavcopy + delivery |
 | Corporate actions (FR-3.x) | Splits/bonuses, per-source adjustment, reconciliation gate |
 | Validation gate (FR-4.1) | All nine checks, Block/Warn severities |
 | Metric engine (§5) | Full metric set, 34 hand-computed unit tests |
@@ -64,17 +64,24 @@ Sync the NIFTY 500 constituent list:
 ```
 
 Load price history. This is deliberately never automatic (FR-2.5) and takes
-roughly 45 minutes for the full universe at the configured rate limit:
+roughly 9 minutes for the full universe at the configured rate limit:
 
 ```bash
-.venv/Scripts/python -m alpha500.cli backfill
+.venv/Scripts/python -m alpha500.cli backfill --years 8
 ```
 
-The default is five years, which yields about 1 236 sessions — just under
-FR-2.2's 1 260 floor, because NSE trades around 247 days a year rather than
-the 252 the spec assumes. Every section 5 metric needs at most 252 sessions,
-so this is sufficient for Phase 1; pass `--years 6` when Phase 3 backtesting
-needs the extra depth. See DECISIONS.md, D-7.
+**Pass `--years 8`.** The flag still defaults to 5, which is what the original
+operator decision chose (D-7), but eight is what this deployment actually runs
+on and what the current store holds. Five years starts the usable window at an
+unrepresentative point: eligibility needs 252 sessions, so the first session
+carrying any eligible stock lands a year in, and the only bear phase in range
+falls outside it. Re-running the same screen over eight years moved its net
+CAGR from 2.43% to 14.46% — the five-year conclusion was not conservative, it
+was wrong. See DECISIONS.md, D-9.
+
+Note that FR-2.2's 1 260-session floor is unachievable at any depth, because a
+current-constituent universe always contains recent IPOs. That is a property of
+the universe, not a shortfall in the backfill; D-9 names the affected symbols.
 
 Verify the corporate-action reconciliation gate passes (a release gate,
 NFR-5.4):
@@ -141,18 +148,28 @@ would let a metric bug pass through unchanged — risk R-5, rated Critical.
 
 ## Measured against the NFR-1 budgets
 
-Full NIFTY 500 universe, 562k price rows, five years of history, on the
-development machine:
+Full NIFTY 500 universe, 842k price rows, eight years of history (1 985
+sessions from 2018-08-17), on the development machine:
 
-| Requirement | Budget | Measured |
-|---|---|---|
-| NFR-1.7 metric recomputation, 500 symbols | 60 s | **42.4 s** |
-| NFR-1.8 full incremental EOD pipeline | 15 min | **61 s** |
-| Cold backfill, 500 symbols | — | ~6 min (rate-limited) |
+| Requirement | Budget | Measured | On |
+|---|---|---|---|
+| NFR-1.7 metric recomputation, 500 symbols | 60 s | **~116 s** | 2026-08-31 |
+| NFR-1.8 full incremental EOD pipeline | 15 min | 7 min 16 s | 2026-08-29 |
+| Cold backfill, 500 symbols, 8 years | — | 8 min 39 s (rate-limited) | 2026-08-27 |
 
-Corporate-action reconciliation passes across all 500 symbols. Of 500
-constituents, 475 are eligible; 15 are excluded for insufficient history and
-30 for a gap disqualifier.
+**NFR-1.7 is breaching.** The 42.4 s previously recorded here was measured on
+562k rows; the store now holds half again as much history. The breach is not a
+code regression — it was measured at 115.1 s and 116.8 s with the same day's
+changes stashed and applied — but the cause has not been investigated. Tracked
+as B-9 in `docs/URD.md`.
+
+The NFR-1.8 figure is a six-session catch-up run, not a single session; a
+normal one-session run has not been re-timed since the deeper backfill, so
+treat it as an upper bound.
+
+Corporate-action reconciliation passes across all 500 symbols. On the
+2026-08-28 session, 476 of 500 constituents are eligible; the 24 excluded are
+held out for insufficient history, thin liquidity or a restricted series.
 
 ## Layout
 

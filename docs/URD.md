@@ -82,10 +82,10 @@ a number, a row count, a named test, a specific symbol on a specific date.>
 | **FR-17.x** | — | — | **Next free** |
 
 Supporting series: `NFR-1` to `NFR-6` (non-functional), `AR-1` to `AR-4`
-(architecture), `D-1` to `D-9` (decisions, in `DECISIONS.md`), `B-1` to `B-7`
+(architecture), `D-1` to `D-9` (decisions, in `DECISIONS.md`), `B-1` to `B-9`
 (open questions, in `DECISIONS.md`), `R-x` (risks; R-1, R-3, R-5 cited in code).
 
-Next free: **NFR-7**, **D-10**, **B-8**.
+Next free: **NFR-7**, **D-10**, **B-10**.
 
 ---
 
@@ -178,10 +178,10 @@ ones will too.
 years. Any requirement phrased as "all-time" or "since listing" must either
 accept that limit or fund a deeper backfill first.
 
-> **Discrepancy to resolve.** `README.md`, D-7 and D-9 all state five years
-> (~1,236 sessions) as the backfill depth and the binding constraint on
-> backtesting. The store actually holds ~8 years back to 2018-08-17. The
-> records are stale, not the data. Tracked as **B-8** below.
+The eight-year depth is deliberate, not incidental: five years started the
+usable window at an unrepresentative point and excluded the only bear phase in
+range. The same screen tested over eight years moved from 2.43% to 14.46% net
+CAGR (D-9). A plain `backfill` still fetches five — pass `--years 8`.
 
 ---
 
@@ -318,25 +318,43 @@ identifying each, and MUST record known failure modes as they occur.
 > against 42.4 s recorded in the README. The store has grown to 841k rows
 > against the 562k that benchmark describes. Tracked as **B-9**.
 
-**Backtesting (Phase 3)** is partially built: the engine, walk-forward
-harness and CLI exist, but §5's history depth governs what can be asked of
-it. D-9 should be re-read against the actual 8 years before any backtest
-result is trusted.
+**Backtesting (Phase 3)** is partially built: the engine, walk-forward harness
+and CLI exist, and §5's history depth governs what can be asked of them. The
+eight-year window carries six testable corrections including the 2020 crash at
+−38.3%; the first session holding any eligible stock is 2019-08-30 (D-9).
+`docs/backtest-findings.md` is the revised eight-year version and carries its
+own caveat that every figure is survivorship-biased upward. The five-year
+results it replaced were materially wrong, not merely noisier — the same screen
+read 2.43% then and 14.46% now — so a backtest number quoted from anywhere
+other than that revised document should be treated as suspect.
 
 ---
 
 ## 8. Open questions
 
-Carried from `DECISIONS.md` (B-2, B-3, B-5, B-6, B-7 remain open), plus two
-raised by this document:
+The B-series lives in `DECISIONS.md`; B-2, B-3, B-5, B-6 and B-7 remain open
+there. The two raised by this document:
 
 | # | Question | State |
 |---|---|---|
-| B-8 | README, D-7 and D-9 say five years; the store holds eight | Open — records stale, needs correcting |
+| B-8 | Records stated five years; the store holds eight | **Resolved 2026-08-31** — see below |
 | B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | Open — cause not yet investigated |
 
-Neither blocks use. Both should be resolved before anyone reasons from the
-README's performance table or from D-9's backtesting constraint.
+**B-8, as resolved.** The original entry overstated the problem: it claimed
+D-9 said five years. D-9 did not. D-9 recorded the extension to eight years on
+2026-08-27, with measurements — it was only its heading that named the problem
+rather than the resolution, which is how a skim of the titles produced the
+wrong conclusion here.
+
+What was genuinely stale was `README.md` (backfill depth, session counts,
+`--years 6` guidance, and a performance table measured on 562k rows) and D-7,
+whose depth decision D-9 had superseded without D-7 saying so. Both are now
+corrected, D-9's heading names its resolution, and the `--years 5` CLI default
+is called out wherever depth is discussed, since that default is the one thing
+that did not change.
+
+B-9 still blocks nothing, but should be settled before anyone reasons from the
+README's performance table.
 
 ---
 
@@ -347,5 +365,6 @@ README's performance table or from D-9's backtesting constraint.
 | 2026-08-31 | Document created from as-built status | — |
 | 2026-08-31 | Size tier shown as text; period high and Approaching High screen added | FR-15.1–15.4 |
 | 2026-08-31 | Scheduler status command, shared freshness rule, runbook | FR-16.1–16.3 |
+| 2026-08-31 | B-8 resolved: README and D-7 corrected to eight years, D-9 heading fixed | — |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
