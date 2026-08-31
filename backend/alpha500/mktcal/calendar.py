@@ -10,14 +10,22 @@ the calendar keeps working with the network down (NFR-2.3).
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Iterable
+from zoneinfo import ZoneInfo
 
 import duckdb
 
 from alpha500.providers.nse_http import NSE_HOME, NseSession
 
 HOLIDAY_API = f"{NSE_HOME}/api/holiday-master?type=trading"
+
+IST = ZoneInfo("Asia/Kolkata")
+
+# NSE finalises the bhavcopy after post-close processing, which is why the
+# pipeline runs at 18:45 IST (FR-5.1). Before that, today's data is not late —
+# it is not due.
+PUBLISH_CUTOFF_IST = time(18, 45)
 
 
 def is_weekend(day: date) -> bool:
@@ -125,3 +133,24 @@ def previous_trading_day(conn: duckdb.DuckDBPyConnection, day: date) -> date:
             return probe
         probe -= timedelta(days=1)
     return probe
+
+
+def expected_session(conn: duckdb.DuckDBPyConnection, now: datetime | None = None) -> date:
+    """The most recent session whose EOD data could plausibly be published.
+
+    Treating today's session as "expected" before the 18:45 IST cutoff would
+    mark the data stale every trading morning — and a staleness warning that
+    fires daily by design is one the operator learns to ignore, which defeats
+    FR-8.9.
+
+    Lives here rather than in the API because it is calendar logic, and
+    because anything else reporting freshness needs the identical answer. A
+    second copy of this rule had already dropped the cutoff half and so called
+    every trading morning stale.
+    """
+    now = now or datetime.now(IST)
+    today = now.date()
+    latest = previous_trading_day(conn, today + timedelta(days=1))
+    if latest == today and now.time() < PUBLISH_CUTOFF_IST:
+        return previous_trading_day(conn, today)
+    return latest

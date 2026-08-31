@@ -13,7 +13,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -126,7 +126,9 @@ def main() -> int:
             data_as_of = duck.execute(
                 "SELECT max(trade_date) FROM metrics_daily"
             ).fetchone()[0]
-            expected = cal.previous_trading_day(duck, now.date() + timedelta(days=1))
+            # The same rule the API applies, not a second copy of it: before
+            # the 18:45 IST cutoff today's data is not late, it is not due.
+            expected = cal.expected_session(duck, now)
     except Exception:  # noqa: BLE001 - a locked store is expected, not exceptional
         source = "api"
         try:
