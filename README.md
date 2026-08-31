@@ -153,15 +153,17 @@ sessions from 2018-08-17), on the development machine:
 
 | Requirement | Budget | Measured | On |
 |---|---|---|---|
-| NFR-1.7 metric recomputation, 500 symbols | 60 s | **~116 s** | 2026-08-31 |
+| NFR-1.7 metric recomputation, 500 symbols | 60 s | **~24 s** | 2026-08-31 |
 | NFR-1.8 full incremental EOD pipeline | 15 min | 7 min 16 s | 2026-08-29 |
 | Cold backfill, 500 symbols, 8 years | — | 8 min 39 s (rate-limited) | 2026-08-27 |
 
-**NFR-1.7 is breaching.** The 42.4 s previously recorded here was measured on
-562k rows; the store now holds half again as much history. The breach is not a
-code regression — it was measured at 115.1 s and 116.8 s with the same day's
-changes stashed and applied — but the cause has not been investigated. Tracked
-as B-9 in `docs/URD.md`.
+NFR-1.7 breached at ~116 s once the store reached eight years, and was fixed by
+vectorising the two support kernels rather than by trimming what is loaded —
+`swing_lows` and `nearest_support` were Python loops over every bar, and
+`np.delete` alone was being called once per price row. Output is bit-identical
+across all 500 symbols; see DECISIONS.md, D-10. Roughly 60% of what remains is
+Wilder smoothing, which is a sequential recurrence and would need a new
+dependency to vectorise — not worth it at 40% of budget.
 
 The NFR-1.8 figure is a six-session catch-up run, not a single session; a
 normal one-session run has not been re-timed since the deeper backfill, so

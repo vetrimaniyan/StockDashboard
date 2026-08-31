@@ -413,18 +413,17 @@ def swing_lows(low: Floats, reach: int = 3) -> NDArray[np.bool_]:
     """
     n = low.size
     out = np.zeros(n, dtype=bool)
-    if n < 2 * reach + 1:
+    width = 2 * reach + 1
+    if n < width:
         return out
-    for i in range(reach, n - reach):
-        centre = low[i]
-        if not np.isfinite(centre):
-            continue
-        window = low[i - reach : i + reach + 1]
-        if not np.all(np.isfinite(window)):
-            continue
-        # Strict against the rest of the window, so a flat run yields no low.
-        if centre < np.min(np.delete(window, reach)):
-            out[i] = True
+
+    view = np.lib.stride_tricks.sliding_window_view(low, width)
+    centre = view[:, reach]
+    # Every bar in the window must be finite, the centre included.
+    finite = np.isfinite(view).all(axis=1)
+    # Strict against the rest of the window, so a flat run yields no low.
+    others = np.concatenate((view[:, :reach], view[:, reach + 1 :]), axis=1)
+    out[reach : n - reach] = finite & (centre < others.min(axis=1))
     return out
 
 
@@ -441,19 +440,24 @@ def nearest_support(
     """
     n = close.size
     out = _empty_like(n)
-    for i in range(n):
-        price = close[i]
-        if not np.isfinite(price):
-            continue
-        best = -np.inf
-        start = max(0, i - lookback + 1)
-        for j in range(start, i + 1):
-            if swing[j] and np.isfinite(low[j]) and low[j] <= price:
-                best = max(best, low[j])
-        for series in candidates:
-            level = series[i]
-            if np.isfinite(level) and level <= price:
-                best = max(best, level)
-        if best > -np.inf and best > 0:
-            out[i] = best
+    if n == 0:
+        return out
+
+    # Only confirmed swing lows are candidates; everything else becomes -inf so
+    # the windowed max simply ignores it. Left-padding by lookback-1 makes
+    # window i cover exactly [i-lookback+1, i], including the partial windows
+    # at the start of the series.
+    levels = np.where(swing & np.isfinite(low), low, -np.inf)
+    padded = np.concatenate((np.full(lookback - 1, -np.inf), levels))
+    window = np.lib.stride_tricks.sliding_window_view(padded, lookback)
+
+    # A candidate counts only where it sits at or below that bar's close.
+    best = np.where(window <= close[:, None], window, -np.inf).max(axis=1)
+    for series in candidates:
+        usable = np.isfinite(series) & (series <= close)
+        best = np.maximum(best, np.where(usable, series, -np.inf))
+
+    # A non-finite close has no support, and -inf fails `> 0` on its own.
+    usable = np.isfinite(close) & (best > 0)
+    out[usable] = best[usable]
     return out

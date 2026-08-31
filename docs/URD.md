@@ -82,10 +82,10 @@ a number, a row count, a named test, a specific symbol on a specific date.>
 | **FR-17.x** | — | — | **Next free** |
 
 Supporting series: `NFR-1` to `NFR-6` (non-functional), `AR-1` to `AR-4`
-(architecture), `D-1` to `D-9` (decisions, in `DECISIONS.md`), `B-1` to `B-9`
+(architecture), `D-1` to `D-10` (decisions, in `DECISIONS.md`), `B-1` to `B-9`
 (open questions, in `DECISIONS.md`), `R-x` (risks; R-1, R-3, R-5 cited in code).
 
-Next free: **NFR-7**, **D-10**, **B-10**.
+Next free: **NFR-7**, **D-11**, **B-10**.
 
 ---
 
@@ -307,16 +307,16 @@ identifying each, and MUST record known failure modes as they occur.
 
 | ID | Requirement | Budget | Measured | State |
 |---|---|---|---|---|
-| NFR-1.7 | Metric recompute, 500 symbols | 60 s | **~116 s** (2026-08-31) | **Breach** |
+| NFR-1.7 | Metric recompute, 500 symbols | 60 s | ~24 s (2026-08-31) | Met |
 | NFR-1.8 | Full incremental EOD pipeline | 15 min | 7 min 16 s (2026-08-29, six-session catch-up) | Met |
 | NFR-4.1 | API binds loopback only | — | Enforced, warns otherwise | Met |
 | NFR-5.1 | Hand-computed metric tests | — | 172 tests passing | Met |
 | NFR-5.6 | Docs generated, not written | — | METRICS.md, operator manual | Met |
 
-> **NFR-1.7 is breaching and it is not a recent regression.** Measured at
-> 115.1 s with the 2026-08-31 changes stashed and 116.8 s with them applied,
-> against 42.4 s recorded in the README. The store has grown to 841k rows
-> against the 562k that benchmark describes. Tracked as **B-9**.
+> **NFR-1.7 was breaching at ~116 s and is now met at ~24 s.** The cause was
+> not the larger store: two FR-14 support kernels were per-bar Python loops,
+> and `np.delete` alone ran once per price row. Vectorising them left output
+> bit-identical across all 500 symbols. See D-10; resolved as **B-9**.
 
 **Backtesting (Phase 3)** is partially built: the engine, walk-forward harness
 and CLI exist, and §5's history depth governs what can be asked of them. The
@@ -338,7 +338,7 @@ there. The two raised by this document:
 | # | Question | State |
 |---|---|---|
 | B-8 | Records stated five years; the store holds eight | **Resolved 2026-08-31** — see below |
-| B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | Open — cause not yet investigated |
+| B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | **Resolved 2026-08-31** — vectorised to ~24 s, see D-10 |
 
 **B-8, as resolved.** The original entry overstated the problem: it claimed
 D-9 said five years. D-9 did not. D-9 recorded the extension to eight years on
@@ -353,8 +353,16 @@ corrected, D-9's heading names its resolution, and the `--years 5` CLI default
 is called out wherever depth is discussed, since that default is the one thing
 that did not change.
 
-B-9 still blocks nothing, but should be settled before anyone reasons from the
-README's performance table.
+**B-9, as resolved.** Profiling contradicted the assumption recorded when it
+was filed. The breach was not the store growing 50% — it was `swing_lows` and
+`nearest_support` scanning bar by bar, costing 38.9 s of 58.7 s. Both are
+sliding-window problems that numpy expresses directly. Vectorised, the recompute
+runs in ~24 s with bit-identical output, verified against verbatim copies of the
+previous implementations across all 500 symbols and seven edge cases.
+
+Roughly 60% of the remaining 24 s is Wilder smoothing, a sequential recurrence
+that would need scipy to vectorise exactly. Adding a dependency to reclaim time
+already inside budget was rejected; see D-10.
 
 ---
 
@@ -366,5 +374,6 @@ README's performance table.
 | 2026-08-31 | Size tier shown as text; period high and Approaching High screen added | FR-15.1–15.4 |
 | 2026-08-31 | Scheduler status command, shared freshness rule, runbook | FR-16.1–16.3 |
 | 2026-08-31 | B-8 resolved: README and D-7 corrected to eight years, D-9 heading fixed | — |
+| 2026-08-31 | B-9 resolved: support kernels vectorised, NFR-1.7 back inside budget | NFR-1.7 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->

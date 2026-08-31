@@ -247,6 +247,47 @@ originally gave.
 
 ---
 
+## D-10 — B-9 resolved: the support kernels were the cost, not the data volume
+
+**Context.** NFR-1.7 budgets 60 s for a full metric recompute. It was measured
+at ~116 s on 2026-08-31, against 42.4 s recorded when the store held five years
+and 562k rows. The obvious reading — eight years of history is simply more work
+— was wrong, and profiling rather than assuming is what showed it.
+
+**Finding.** `_support_and_reversal` accounted for 38.9 s of 58.7 s. Two FR-14
+kernels were Python loops over every bar:
+
+* `swing_lows` allocated a fresh array per bar via `np.delete`, called **838 519
+  times** — once per price row in the store.
+* `nearest_support` scanned back 63 bars for every bar, ~62 M inner iterations
+  across the universe.
+
+Both are pure sliding-window problems that numpy expresses directly.
+
+**Decision.** Vectorise both with `sliding_window_view`. Rejected alternatives:
+
+* *Load less history.* Would have worked for most metrics — nothing needs more
+  than 252 sessions except `history_days` and `high_period` — but it trades a
+  real correctness surface for speed that was not the bottleneck anyway.
+* *Vectorise `_recursive_smooth` too.* It is now ~60% of the remaining 24 s, but
+  Wilder smoothing is a sequential first-order recurrence. Doing it exactly needs
+  `scipy.signal.lfilter`, and scipy is not a dependency. Adding one to reclaim
+  time already inside budget is a poor trade.
+
+**Result.** ~116 s to **~24 s**, against a 60 s budget. Output is bit-identical:
+both kernels were differential-tested against verbatim copies of the previous
+implementations across all 500 symbols and seven synthetic edge cases (flat
+runs, embedded NaNs, series shorter than the window). The 172-test suite passes,
+and the Pullback + Reversal, Pullback to Support and Approaching High screens
+return the same names in the same order.
+
+**What this says about the earlier number.** 42.4 s was never a healthy figure
+for this code — the FR-14 kernels landed after it was taken, and their cost grew
+linearly with a store that then grew 50%. The budget caught a design problem
+that a faster machine would only have hidden.
+
+---
+
 ## Open items still outstanding
 
 | # | Item | Status |
@@ -259,4 +300,4 @@ originally gave.
 | B-6 | French declaration and foreign tax credit | Open. Not yet implemented. |
 | B-7 | Portfolio value source for sizing | Open. Currently a manual input to the sizing endpoint. |
 | B-8 | Records stated five years of history; the store holds eight | **Resolved 2026-08-31** — README and D-7 corrected, D-9 heading now names its resolution. Detail in `docs/URD.md` §8. |
-| B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | Open. Not a code regression — measured at 115.1 s with that day's changes stashed. Cause uninvestigated; the store has grown to 842k rows from the 562k the old benchmark used. |
+| B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | **Resolved 2026-08-31** — see D-10. Two FR-14 support kernels were per-bar Python loops; vectorised to ~24 s with bit-identical output. |
