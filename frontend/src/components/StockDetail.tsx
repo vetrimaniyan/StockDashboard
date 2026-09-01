@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react'
 import { api, type MetricDefinition, type StockDetail as Detail } from '../api'
 import { byUnit, currency, formatDate, pct, signedPct, directionClass, EM_DASH } from '../format'
+import { FibWorking } from './FibWorking'
 import { PriceChart } from './PriceChart'
 
 interface Props {
@@ -102,8 +103,22 @@ export function StockDetail({ symbol, definitions, onClose }: Props) {
                 candles={detail.candles}
                 high52w={detail.metrics.high_52w as number | null}
                 low52w={detail.metrics.low_52w as number | null}
+                fib={{
+                  legLowDate: detail.metrics.fib_leg_low_date as string | null,
+                  legLowPrice: detail.metrics.fib_leg_low_price as number | null,
+                  legHighDate: detail.metrics.fib_leg_high_date as string | null,
+                  legHighPrice: detail.metrics.fib_leg_high_price as number | null,
+                  confirmedDate: detail.metrics.fib_leg_confirmed_date as string | null,
+                  level382: detail.metrics.fib_level_382 as number | null,
+                  level500: detail.metrics.fib_level_500 as number | null,
+                  level618: detail.metrics.fib_level_618 as number | null,
+                  level786: detail.metrics.fib_level_786 as number | null,
+                  stop: detail.metrics.fib_stop as number | null,
+                }}
               />
             </div>
+
+            <FibWorking metrics={detail.metrics} />
 
             {risk && (
               <section className="m-3 rounded border border-[var(--border)] bg-[var(--panel)]">

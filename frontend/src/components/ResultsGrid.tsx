@@ -19,7 +19,7 @@ import {
 } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { MetricDefinition, ScreenRow } from '../api'
-import { STATIC_LABELS, TEXT_COLUMNS, TIER_LABELS } from '../columns'
+import { DATE_COLUMNS, STATIC_LABELS, TEXT_COLUMNS, TIER_LABELS } from '../columns'
 import { byUnit, directionClass, arrow, EM_DASH, isBlank } from '../format'
 import { CardList } from './CardList'
 
@@ -109,7 +109,7 @@ export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
       const label = def?.label ?? STATIC_LABELS[key] ?? key
       const unit = def?.unit ?? STATIC_UNITS[key]
       const isSymbol = key === 'tradingsymbol'
-      const isText = TEXT_COLUMNS.has(key)
+      const isText = TEXT_COLUMNS.has(key) || DATE_COLUMNS.has(key)
 
       return {
         id: key,

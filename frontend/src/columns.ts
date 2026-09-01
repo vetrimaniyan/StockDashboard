@@ -25,6 +25,11 @@ export const DEFAULT_COLUMNS = [
   // it was measured over, which varies from months to years by symbol.
   'pct_from_period_high',
   'history_days',
+  // FR-17. The status and the exclusion reason together answer both
+  // "is this a setup" and "why is this not one".
+  'fib_zone_status',
+  'fib_retracement_ratio',
+  'fib_reward_risk',
   'rel_volume',
   'atr_pct_14',
   'rsi_14',
@@ -58,6 +63,13 @@ export const TIER_LABELS: Record<string, string> = {
 export const TEXT_COLUMNS: ReadonlySet<string> = new Set([
   'tradingsymbol', 'name', 'sector', 'industry', 'series',
   'index_tier', 'ineligible_reason',
+  // FR-17: string-valued, so they must not reach the numeric formatter.
+  'fib_zone_status', 'fib_zone_entry_type', 'fib_exclusion_reason',
+])
+
+/** Date-valued columns. Rendered as dates, not run through byUnit. */
+export const DATE_COLUMNS: ReadonlySet<string> = new Set([
+  'fib_leg_low_date', 'fib_leg_high_date', 'fib_leg_confirmed_date',
 ])
 
 export const STATIC_LABELS: Record<string, string> = {
