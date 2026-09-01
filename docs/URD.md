@@ -79,7 +79,8 @@ a number, a row count, a named test, a specific symbol on a specific date.>
 | FR-14.x | Pullback and reversal | `SRS-addendum-screener.md` | In use |
 | FR-15.x | Size tier and period high | This document, §6 | In use |
 | FR-16.x | Operability | This document, §6 | In use |
-| **FR-17.x** | — | — | **Next free** |
+| FR-17.x | Fibonacci retracement zone | This document, §6 | In use |
+| **FR-18.x** | — | — | **Next free** |
 
 Supporting series: `NFR-1` to `NFR-6` (non-functional), `AR-1` to `AR-4`
 (architecture), `D-1` to `D-10` (decisions, in `DECISIONS.md`), `B-1` to `B-9`
@@ -101,9 +102,9 @@ Verified against the running system on 2026-08-31.
 | Corporate actions (FR-3.x) | Built | Reconciliation gate passes on all 500 |
 | Validation gate (FR-4.1) | Built | Nine checks, Block/Warn severities |
 | Scheduling (FR-5.1) | Built | In-process APScheduler, 18:45 IST |
-| Metric engine (FR-6.x) | Built | **74 metrics**, hand-computed unit tests |
-| Screener (FR-7.x) | Built | Filter compiler, **8 screens** + universe browser |
-| API (§2.3) | Built | 11 endpoints, loopback only |
+| Metric engine (FR-6.x) | Built | **100 metrics**, hand-computed unit tests |
+| Screener (FR-7.x) | Built | Filter compiler, **9 screens** + universe browser |
+| API (§2.3) | Built | 12 endpoints, loopback only |
 | Frontend (FR-8.x) | Built | Dashboard, virtualised grid, stock detail |
 | Exports (FR-9.x) | Built | xlsx, csv, html, each with provenance |
 | Risk and tax (FR-10, FR-12) | Built | Stops, cash-only sizing, TDS round-trip |
@@ -118,7 +119,7 @@ Verified against the running system on 2026-08-31.
 short history or a restricted series. Size tiers: 50 Nifty 50, 50 Next 50,
 150 Midcap 150, 250 Smallcap 250.
 
-### The eight screens
+### The nine screens
 
 | Screen | Finds | Rows cap |
 |---|---|---|
@@ -129,6 +130,7 @@ short history or a restricted series. Size tiers: 50 Nifty 50, 50 Next 50,
 | Pullback to Support | Uptrend resting on the 21 EMA or 50 SMA | 50 |
 | Pullback + Reversal | At support with reversal confirmation | 10 |
 | Approaching High | Within 3% of the period high, not yet through | 50 |
+| Fibonacci Reversal Zone | In the 50-61.8% retracement, turned today | 25 |
 | **Momentum Breakdown** | **EXIT signal for held names** | 100 |
 
 Plus **All NIFTY 500**, a universe browser rather than a screen: it is the
@@ -303,11 +305,108 @@ identifying each, and MUST record known failure modes as they occur.
 
 ---
 
+### FR-17 — Fibonacci retracement zone
+
+**FR-17.1 — Impulse leg anchors.** The system MUST identify the most recent
+completed impulse leg per symbol and session: confirmed swing low A to
+confirmed swing high B, requiring amplitude >= 20%, duration 15-250 sessions,
+age <= 60 sessions, no single-session move above 20% inside the leg, and B
+still the highest high through today. Up to three swing highs are tried before
+reporting NO_VALID_LEG.
+
+A swing MUST NOT be usable before the session its confirming window completes.
+Both dates are stored, and all screening and backtesting reference the
+confirmed date. Using the extreme date is look-ahead and it is silent — the
+screen still returns rows and a backtest still produces a return nobody could
+have earned.
+
+FR-17 reuses FR-14's fractal rather than defining a second notion of a swing;
+`swing_highs` is its mirror.
+
+*Acceptance:* `test_swing_anchor_is_not_available_before_confirmation` asserts
+no leg surfaces before B + reach. On 2026-08-31 INFY shows B printed
+2026-08-10 and usable from 2026-08-13.
+
+*Status:* Built (`test_fib_zone.py`, 19 tests)
+
+---
+
+**FR-17.2/17.3 — Levels, ratio and zone.** Levels are `B - r*(B-A)` for r in
+{0.382, 0.500, 0.618, 0.786}. The zone runs from level(0.618) up to
+level(0.500), inclusive at both ends.
+
+The 61.8% level is the LOWER price. Written the intuitive way round the filter
+returns nothing and reads like a data fault. `fib_max_retracement` is stored
+separately from the current ratio: a leg wicked to 0.72 and recovered to 0.55
+has been tested and held; one that never traded past 0.55 has not.
+
+A deeper retracement is cheaper, NOT stronger, so the ratio MUST carry zero
+weight in the ranking and MUST NOT be offered as a sort.
+
+*Acceptance:* A=400, B=560, R=160 gives 498.88 / 480.00 / 461.12 / 434.24;
+close 470 gives 0.56250. Closes at 480.00 and 461.12 are inside, 481.00 and
+460.00 outside.
+
+*Status:* Built
+
+---
+
+**FR-17.4/17.5 — Volume shape and the reversal bar.** Three ratios, not one
+threshold: impulse, dry-up and relative volume. A single "volume above
+average" test MUST NOT be used — in a retracement, elevated volume selects for
+distribution as readily as accumulation. Delivery against its 20-session mean
+is a caution badge only, never a filter (FR-2.7 is warn-not-block).
+
+A symbol MUST NOT be TRIGGERED on zone membership alone. Being in the band is
+a location; the reversal bar is the event. Conflating them produces a standing
+list of stocks in decline.
+
+*Acceptance:* pre-leg 100000, leg 145000, pullback 98600 gives 1.45 and 0.68.
+O 462 H 472 L 460 C 470 gives close position 0.83333 and passes; C 465 gives
+0.41667 and fails.
+
+*Status:* Built
+
+---
+
+**FR-17.6/17.7 — The screen, stop and reward.** Ninth screen, cap 25, ranked by
+`fib_setup_score` over winsorised z-scores. Stop is the WIDER of level(0.786)
+and the in-zone swing low less half an ATR, because the wider stop survives
+noise the tighter one would be shaken out by.
+
+Most sessions return 0-5 rows. An empty grid is the setup being absent.
+
+*Acceptance:* C 470, level(0.786) 434.24, swing 460, ATR 12 gives stop 434.24,
+risk 35.76 and R:R 2.51678. On 2026-08-31 the screen returns 0 rows with the
+funnel reading 500 → 137 gated → 72 with legs → 0 in zone.
+
+*Status:* Built
+
+---
+
+**FR-17.8/17.9/17.10 — Transparency.** An exclusion reason per constituent, a
+funnel with per-stage counts, a per-row working panel showing the arithmetic,
+and a chart overlay carrying the leg, the four levels, the shaded band, the
+stop and a marker on the session the leg became available.
+
+The word "support" MUST NOT be used for a Fibonacci level anywhere. Support is
+where buyers actually appeared (FR-14.2); these are geometry. An empty grid
+MUST be distinguishable from a misconfigured threshold — they look identical
+otherwise and only one is worth acting on.
+
+*Acceptance:* `/api/fib/funnel` returns seven labelled stages. The working
+panel renders A, B, amplitude, R, all four level computations and both volume
+ratios with their windows.
+
+*Status:* Built
+
+---
+
 ## 7. Non-functional status
 
 | ID | Requirement | Budget | Measured | State |
 |---|---|---|---|---|
-| NFR-1.7 | Metric recompute, 500 symbols | 60 s | ~24 s (2026-08-31) | Met |
+| NFR-1.7 | Metric recompute, 500 symbols | 60 s | ~27 s (2026-08-31, with FR-17) | Met |
 | NFR-1.8 | Full incremental EOD pipeline | 15 min | 7 min 16 s (2026-08-29, six-session catch-up) | Met |
 | NFR-4.1 | API binds loopback only | — | Enforced, warns otherwise | Met |
 | NFR-5.1 | Hand-computed metric tests | — | 172 tests passing | Met |
@@ -375,5 +474,6 @@ already inside budget was rejected; see D-10.
 | 2026-08-31 | Scheduler status command, shared freshness rule, runbook | FR-16.1–16.3 |
 | 2026-08-31 | B-8 resolved: README and D-7 corrected to eight years, D-9 heading fixed | — |
 | 2026-08-31 | B-9 resolved: support kernels vectorised, NFR-1.7 back inside budget | NFR-1.7 |
+| 2026-08-31 | Fibonacci retracement zone: 26 metrics and the ninth screen | FR-17.1-17.10 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
