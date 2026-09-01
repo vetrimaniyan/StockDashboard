@@ -189,6 +189,43 @@ correctly-scheduled job look wrong. Use the same source the scheduler uses:
 
 ---
 
+## Sharing the dashboard with someone else
+
+The API has authentication (NFR-4.5), off by default. With no token configured
+it is loopback-only and behaves exactly as it always did.
+
+Mint a token per reviewer so any one of them can be withdrawn alone:
+
+```bash
+.venv/Scripts/python -m alpha500.cli token
+```
+
+Put them in `.env` as `ALPHA500_API_TOKENS=alice:<token>,bob:<token>`, restart,
+and every `/api/*` route needs a credential. Reviewers paste the token into
+the sign-in screen once; it is exchanged for an httpOnly cookie so no script
+on the page can read it back.
+
+**Binding beyond loopback without a token refuses to start.** That is
+deliberate — the previous behaviour was a printed warning, and a warning is
+advice rather than a control.
+
+```bash
+.venv/Scripts/python -m alpha500.cli serve --with-scheduler --host 0.0.0.0
+```
+
+Two things authentication does not solve. It does not make the data
+redistributable — market data is licensed for personal use, so check the terms
+before granting access. And it does not encrypt anything: over a LAN or the
+open internet the token and the responses travel in clear text unless you put
+https in front of it. For a handful of named reviewers, a private network
+(Tailscale or similar) is a better answer than opening a port.
+
+To withdraw one reviewer, delete their entry and restart. To withdraw
+everyone, remove the variables entirely — which also returns the API to
+loopback-only.
+
+---
+
 ## Restoring the user store
 
 `data/alpha500.duckdb` is rebuildable from a backfill. `data/app.sqlite` is

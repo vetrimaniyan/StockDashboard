@@ -6,16 +6,18 @@ tool and market-data licensing does not permit redistribution.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from typing import Any, AsyncIterator
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from alpha500 import risk
+from alpha500.api import auth
 from alpha500.api.schemas import (
     BacktestAvailability,
     BacktestRequest,
@@ -53,6 +55,8 @@ from alpha500.screens.presets import (
     market_regime,
 )
 
+log = logging.getLogger(__name__)
+
 IST = ZoneInfo("Asia/Kolkata")
 # The pipeline's scheduled slot (FR-5.1). Before this, today's EOD data does
 # not yet exist upstream and its absence is not a fault.
@@ -75,12 +79,48 @@ app = FastAPI(
 )
 
 # The SPA runs on the Vite dev server during development; both are loopback.
+# allow_credentials is required for the session cookie to survive the origin
+# hop, and it is why allow_origins must stay an explicit list: the wildcard is
+# rejected with credentials, and rightly so.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _authenticate(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Require a credential on every route once tokens are configured.
+
+    Allow-list, not deny-list: a route added later is protected by default
+    rather than exposed until somebody remembers. With no tokens configured
+    the service is loopback-only and this is a no-op, which keeps the local
+    development workflow exactly as it was.
+    """
+    if not auth.auth_required():
+        return await call_next(request)
+
+    path = request.url.path
+    # CORS preflight carries no credentials by design.
+    if request.method == "OPTIONS" or path in auth.PUBLIC_PATHS:
+        return await call_next(request)
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
+    presented = auth.bearer_from_header(
+        request.headers.get("authorization")
+    ) or request.cookies.get(auth.SESSION_COOKIE)
+    principal = auth.identify(presented)
+    if principal is None:
+        # No detail about why: whether a token was absent, malformed or simply
+        # wrong is not information an unauthenticated caller should receive.
+        return JSONResponse(status_code=401, content={"detail": "Authentication required."})
+
+    request.state.principal = principal
+    return await call_next(request)
 
 
 @app.exception_handler(DatabaseBusyError)
@@ -654,3 +694,48 @@ def get_fib_funnel(as_of: date | None = None) -> dict[str, Any]:
     with analytical(read_only=True) as conn:
         stages = fib_funnel(conn, resolved)
     return {"as_of": resolved.isoformat(), "stages": stages, "status": _data_status()}
+
+
+# --- session -------------------------------------------------------------
+
+
+@app.get("/api/health")
+def get_health() -> dict[str, object]:
+    """Liveness only. Reachable without a credential, so it discloses nothing
+    beyond the fact that the service is running and whether it wants one."""
+    return {"status": "ok", "auth_required": auth.auth_required()}
+
+
+@app.post("/api/session")
+def create_session(payload: dict[str, Any], response: Response) -> dict[str, object]:
+    """Exchange a token for a session cookie, so a browser need not hold it.
+
+    The cookie is httponly, which keeps it out of reach of any script on the
+    page, and SameSite=strict, which stops another site causing the browser to
+    send it. Secure is set when the API is served over https; forcing it on
+    loopback http would stop the cookie being stored at all.
+    """
+    if not auth.auth_required():
+        raise HTTPException(400, "No API tokens are configured; the API is loopback-only.")
+
+    principal = auth.identify(str(payload.get("token") or ""))
+    if principal is None:
+        log.warning("rejected session attempt")
+        raise HTTPException(401, "That token was not accepted.")
+
+    response.set_cookie(
+        auth.SESSION_COOKIE,
+        str(payload.get("token")),
+        httponly=True,
+        samesite="strict",
+        secure=settings.api_https,
+        max_age=60 * 60 * 12,
+        path="/",
+    )
+    return {"status": "ok", "label": principal.label}
+
+
+@app.post("/api/session/end")
+def end_session(response: Response) -> dict[str, str]:
+    response.delete_cookie(auth.SESSION_COOKIE, path="/")
+    return {"status": "ok"}

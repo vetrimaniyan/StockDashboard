@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { SignIn } from './components/SignIn'
 import {
   ApiError,
   api,
@@ -25,11 +26,23 @@ export default function App() {
   const [screenLoading, setScreenLoading] = useState(false)
   const [symbol, setSymbol] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // null = not yet known. Any 401 flips this, so a session expiring
+  // mid-use returns to sign-in rather than showing a broken dashboard.
+  const [signedIn, setSignedIn] = useState<boolean | null>(null)
 
   const definitionMap = useMemo(
     () => new Map(definitions.map((d) => [d.name, d])),
     [definitions],
   )
+
+  const handle = useCallback((e: ApiError) => {
+    if (e.status === 401) {
+      setSignedIn(false)
+      setError(null)
+      return
+    }
+    setError(e.message)
+  }, [])
 
   const load = useCallback(() => {
     setError(null)
@@ -38,9 +51,10 @@ export default function App() {
         setDashboard(d)
         setPresets(p)
         setDefinitions(m)
+        setSignedIn(true)
       })
-      .catch((e: ApiError) => setError(e.message))
-  }, [])
+      .catch(handle)
+  }, [handle])
 
   useEffect(load, [load])
 
@@ -50,9 +64,9 @@ export default function App() {
     api
       .presetScreen(activeScreen)
       .then(setScreen)
-      .catch((e: ApiError) => setError(e.message))
+      .catch(handle)
       .finally(() => setScreenLoading(false))
-  }, [view, activeScreen])
+  }, [view, activeScreen, handle])
 
   const openScreen = (name: string) => {
     setActiveScreen(name)
@@ -60,6 +74,10 @@ export default function App() {
   }
 
   const status = dashboard?.status ?? screen?.status ?? null
+
+  if (signedIn === false) {
+    return <SignIn onSignedIn={load} />
+  }
 
   return (
     <div className="h-full flex flex-col">

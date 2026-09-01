@@ -327,6 +327,21 @@ def cmd_reconcile(_args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_token(_args: argparse.Namespace) -> int:
+    """Mint an API token. Printed once; this command stores nothing."""
+    from alpha500.api.auth import mint_token
+
+    token = mint_token()
+    print()
+    print("  Add to .env (never commit it):")
+    print(f"    ALPHA500_API_TOKEN={token}")
+    print()
+    print("  Or one per reviewer, so any of them can be revoked alone:")
+    print(f"    ALPHA500_API_TOKENS=alice:{token},bob:<mint another>")
+    print()
+    return 0
+
+
 def cmd_backup(args: argparse.Namespace) -> int:
     """Snapshot the user store on demand. The pipeline also does this nightly."""
     from alpha500.db.backup import backup_app_db
@@ -343,14 +358,22 @@ def cmd_backup(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
+    from alpha500.api import auth
+
     host = args.host or settings.api_host
-    if host not in {"127.0.0.1", "localhost", "::1"}:
-        # NFR-4.1: binding beyond loopback must be deliberate and warned about.
+    # NFR-4.5: a warning is not a control. Binding beyond loopback with no
+    # token now refuses to start, rather than printing advice and proceeding.
+    auth.guard_bind_address(host)
+    if host not in auth.LOOPBACK_HOSTS:
+        labels = ", ".join(sorted(auth.configured_tokens()))
         print(
-            f"\n  WARNING: binding to {host} exposes this service beyond loopback.\n"
-            "  Market-data licensing does not permit redistribution, and the API\n"
-            "  has no authentication. Bind to 127.0.0.1 unless you are certain.\n"
+            f"\n  Binding to {host}, beyond loopback.\n"
+            f"  Authentication is ON ({labels}).\n"
+            "  Market-data licensing does not permit redistribution — check the\n"
+            "  terms before sharing access.\n"
         )
+    elif auth.auth_required():
+        print(f"  Authentication is ON ({len(auth.configured_tokens())} token(s)).")
 
     # With the scheduler in-process the pipeline writes through this same
     # connection, so the process must hold the store read-write. Without it,
@@ -451,6 +474,8 @@ def main(argv: list[str] | None = None) -> int:
         help="sample every Nth session (5 = weekly); 1 fetches every session",
     )
 
+    sub.add_parser("token", help="mint an API token for a reviewer")
+
     p_backup = sub.add_parser("backup", help="snapshot app.sqlite (user data)")
     p_backup.add_argument("--to", type=Path, default=None,
                           help="destination directory; defaults to ALPHA500_BACKUP_DIR")
@@ -478,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
         "materialise": cmd_materialise, "backtest": cmd_backtest,
         "marketcap": cmd_marketcap, "indices": cmd_indices,
-        "reconcile": cmd_reconcile, "backup": cmd_backup, "serve": cmd_serve,
+        "reconcile": cmd_reconcile, "backup": cmd_backup, "token": cmd_token, "serve": cmd_serve,
     }
     return handlers[args.command](args)
 

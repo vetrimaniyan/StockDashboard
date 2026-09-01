@@ -135,6 +135,10 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
+    // Carries the session cookie. The token itself is never held in JS: it is
+    // exchanged once for an httpOnly cookie, so no script on the page — ours
+    // or anyone else's — can read it back out.
+    credentials: 'include',
     ...init,
   })
   if (!response.ok) {
@@ -153,6 +157,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  /** Reachable without a credential; says only whether one is wanted. */
+  health: () => request<{ status: string; auth_required: boolean }>('/api/health'),
+  signIn: (token: string) =>
+    request<{ status: string; label: string }>('/api/session', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  signOut: () => request<{ status: string }>('/api/session/end', { method: 'POST' }),
   status: () => request<DataStatus>('/api/status'),
   dashboard: () => request<DashboardResponse>('/api/dashboard'),
   presets: () => request<PresetSummary[]>('/api/presets'),

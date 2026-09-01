@@ -136,7 +136,17 @@ def main() -> int:
             import urllib.request
 
             url = f"http://127.0.0.1:{settings.api_port}/api/status"
-            with urllib.request.urlopen(url, timeout=5) as resp:
+            request = urllib.request.Request(url)
+            # Once tokens are configured the API needs one here too. Read from
+            # the same settings the server uses rather than a second copy.
+            from alpha500.api.auth import configured_tokens
+
+            available = configured_tokens()
+            if available:
+                request.add_header(
+                    "Authorization", f"Bearer {next(iter(available.values()))}"
+                )
+            with urllib.request.urlopen(request, timeout=5) as resp:
                 status = json.load(resp)
             data_as_of = status.get("data_as_of")
             expected = status.get("latest_session")

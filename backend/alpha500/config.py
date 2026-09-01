@@ -90,6 +90,18 @@ class Settings(BaseSettings):
     # --- API -------------------------------------------------------------
     api_host: str = "127.0.0.1"  # NFR-4.1
     api_port: int = 8000
+    # NFR-4.5. Secrets, so they live in .env or the keyring and never in code
+    # (NFR-4.2); repr is suppressed so a settings dump cannot leak them.
+    # Unset means loopback-only: binding elsewhere without a token refuses to
+    # start rather than exposing an unauthenticated API.
+    api_token: str | None = Field(default=None, repr=False)
+    # "label:token" pairs, comma separated, so one reviewer can be revoked
+    # without disturbing the rest.
+    api_tokens: str | None = Field(default=None, repr=False)
+    # Set true when the API is reached over https, so the session cookie is
+    # marked Secure. Left false for loopback http, where Secure would stop the
+    # cookie being stored at all.
+    api_https: bool = False
 
     # --- Pullback & reversal (FR-14) --------------------------------------
     support_tolerance_pct: float = 0.03   # "at" support, FR-14.2
