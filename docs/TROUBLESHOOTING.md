@@ -116,6 +116,47 @@ Stage statuses are `RUNNING` / `OK` / `FAILED` / `SKIPPED`. A stage stuck at
 `RUNNING` with no terminal row means the process died mid-stage — look for a
 crash or a machine that slept, not for a logic error.
 
+### The API starts itself at logon
+
+A Windows Scheduled Task named **Alpha500 API** runs `scripts/start_api.ps1`
+when you log in, which starts `serve --with-scheduler` if it is not already up.
+
+The task starts the *server*, not the pipeline, and that is the point. The EOD
+run is scheduled inside the API process (SRS 2.1, D-6), so what has to survive
+a reboot is the server. A task running `alpha500 pipeline` directly would
+instead collide with the serving API over DuckDB's single-writer lock, and
+duplicate the run when the in-process scheduler fired anyway.
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/register_api_task.ps1
+```
+
+Manage it:
+
+```bash
+powershell -Command "Get-ScheduledTaskInfo -TaskName 'Alpha500 API'"
+```
+
+`LastTaskResult` of `0` is success; `267009` means it is still running, which
+is normal for up to 20 seconds while the launcher waits for the port.
+
+Remove it with `register_api_task.ps1 -Remove`.
+
+The launcher declines to start a second instance if the port is already
+listening, or if a CLI writer (`pipeline`, `backfill`, `rebuild`,
+`materialise`, `indices`, `marketcap`) holds the store. A double-start is not
+a harmless duplicate: the second process would try to open the store
+read-write while the first holds it. It logs to `data/start_api.log`,
+deliberately separate from `data/api.log`, which the running server keeps an
+exclusive handle on.
+
+**What this fixes and what it does not.** The pipeline now survives a reboot
+and a closed terminal. It does not survive the machine being off at 18:45 IST
+- but the scheduler's six-hour misfire grace means a PC that wakes by roughly
+00:45 IST still runs that session, once.
+
+---
+
 ### Re-running after a failure
 
 Stop the API first (single writer), then:
