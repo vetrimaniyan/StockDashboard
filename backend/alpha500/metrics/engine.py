@@ -19,6 +19,7 @@ from numpy.typing import NDArray
 from alpha500.config import settings
 from alpha500.metrics import cross_section as xs
 from alpha500.metrics import periods as p
+from alpha500.metrics.fib import FIB_COLUMNS
 from alpha500.metrics.fingerprint import engine_fingerprint
 from alpha500.metrics.series import SeriesMetrics, compute_series_metrics
 
@@ -29,7 +30,7 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "ret_3m", "ret_3m_2m", "ret_6m", "ret_9m", "ret_12m", "ret_12m_1m",
     "rs_1m", "rs_3m", "rs_6m", "rs_12m", "rs_rating",
     "sma_20", "sma_50", "sma_100", "sma_150", "sma_200", "ema_21", "ema_50",
-    "sma_200_slope_1m", "ma_alignment",
+    "sma_200_slope_1m", "ma_alignment", "is_long_term_uptrend",
     "high_52w", "low_52w", "pct_from_52w_high", "pct_above_52w_low",
     "range_position_52w", "days_since_52w_high",
     "high_period", "pct_from_period_high",
@@ -44,23 +45,39 @@ METRIC_COLUMNS: tuple[str, ...] = (
     "is_pullback_reversal",
     "is_trend_template", "trend_template_score", "is_pullback", "gap_disqualified",
     "history_days", "is_eligible", "ineligible_reason",
+    # FR-17 Fibonacci retracement zone.
+    *FIB_COLUMNS, "fib_setup_score",
 )
 
 _INT_COLUMNS = frozenset(
     {
         "rs_rating", "days_since_52w_high", "momentum_rank", "vol_sma_20", "vol_sma_50",
         "base_length_days", "trend_template_score", "history_days",
-        "reversal_score",
+        "reversal_score", "fib_leg_sessions", "fib_sessions_in_zone",
     }
 )
 # The only free-text metric: which rule held a symbol out of screen results.
-_TEXT_COLUMNS = frozenset({"ineligible_reason"})
+_TEXT_COLUMNS = frozenset(
+    {
+        "ineligible_reason",
+        # FR-17.8/17.3: string-valued, so they must reach the text
+        # formatter. A string through the numeric one renders NaN, which
+        # is the FR-15.1 bug.
+        "fib_zone_status", "fib_zone_entry_type", "fib_exclusion_reason",
+    }
+)
+# Date-valued metrics. Stored as DATE so the chart overlay and the
+# point-in-time guarantee can both read them without parsing.
+_DATE_COLUMNS = frozenset(
+    {"fib_leg_low_date", "fib_leg_high_date", "fib_leg_confirmed_date"}
+)
 _BOOL_COLUMNS = frozenset(
     {
         "ma_alignment", "is_52w_high_breakout", "is_n_day_breakout_20",
         "is_n_day_breakout_50", "is_in_base", "is_trend_template", "is_pullback",
         "is_at_support", "is_reversal", "is_pullback_reversal",
-        "gap_disqualified", "is_eligible",
+        "gap_disqualified", "is_eligible", "in_fib_zone", "is_fib_reversal_bar",
+        "is_long_term_uptrend",
     }
 )
 
@@ -278,6 +295,22 @@ def _finalise_cross_section(
     arrays["momentum_score"] = momentum
     arrays["momentum_rank"] = xs.momentum_rank(momentum, eligible)
 
+    # FR-17.6 ranking. A thinner pullback scores higher, so the dry-up ratio
+    # enters inverted; the retracement ratio is absent on purpose.
+    dryup = _as_float(arrays["vol_dryup_ratio"])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        inv_dryup = np.where(dryup > 0, 1.0 / dryup, np.nan)
+    arrays["fib_setup_score"] = xs.fib_setup_score(
+        {
+            "momentum_score": momentum,
+            "rs_rating": _as_float(rating),
+            "inv_vol_dryup": inv_dryup,
+            "rel_volume": _as_float(arrays["rel_volume"]),
+            "fib_sessions_in_zone": _as_float(arrays["fib_sessions_in_zone"]),
+        },
+        eligible=eligible,
+    )
+
     arrays["composite_z"] = xs.composite_z(
         components={
             "momentum_score": momentum,
@@ -295,6 +328,8 @@ def _finalise_cross_section(
 def _coerce(name: str, value: Any) -> Any:
     if value is None:
         return None
+    if name in _DATE_COLUMNS:
+        return value if isinstance(value, date) else None
     if name in _TEXT_COLUMNS:
         text = str(value).strip()
         # An eligible row has no reason; store absence as NULL rather than "".

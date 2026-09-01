@@ -638,3 +638,19 @@ def get_index_valuation() -> dict[str, Any]:
             "is reported as unavailable rather than computed from a partial one."
         ),
     }
+
+
+@app.get("/api/fib/funnel")
+def get_fib_funnel(as_of: date | None = None) -> dict[str, Any]:
+    """Stage-by-stage survivor counts for the FR-17 screen (FR-17.8).
+
+    Served alongside the screen because an empty grid has two very different
+    causes — the setup is absent today, or a threshold is misconfigured — and
+    they are indistinguishable without the counts.
+    """
+    from alpha500.screens.presets import fib_funnel
+
+    resolved = _resolve_as_of(as_of)
+    with analytical(read_only=True) as conn:
+        stages = fib_funnel(conn, resolved)
+    return {"as_of": resolved.isoformat(), "stages": stages, "status": _data_status()}

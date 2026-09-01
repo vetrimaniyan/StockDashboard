@@ -30,6 +30,11 @@ APPROACHING_HIGH: Final[str] = "Approaching High"
 # widen it in the Filters panel for a broader sweep.
 APPROACHING_HIGH_PCT: Final[float] = -0.03
 
+# FR-17. Geometry, not support: the levels come from arithmetic on a past
+# advance, never from buyers having appeared at a price. Named for the zone
+# rather than for a signal, because arriving in it predicts nothing.
+FIB_REVERSAL_ZONE: Final[str] = "Fibonacci Reversal Zone"
+
 # Not a screen but the universe itself: every constituent, including the ones
 # the screens deliberately exclude. FR-1.5 requires symbols dropped for thin
 # liquidity or short history to be visible somewhere rather than silently
@@ -178,6 +183,46 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
         ],
         "limit": 50,
     },
+    FIB_REVERSAL_ZONE: {
+        "name": FIB_REVERSAL_ZONE,
+        "version": 1,
+        "description": (
+            "Confirmed uptrend that has pulled back into the 50%-61.8% "
+            "retracement of its last impulse leg, on thinning volume, and "
+            "turned today. Arriving in the zone is arithmetic, not a "
+            "forecast — the reversal bar is the event. Most sessions return "
+            "0-5 rows; none is the setup being absent, not a fault."
+        ),
+        "universe": {"index": settings.index_name, "exclude_ineligible": True},
+        "filters": {
+            "op": "AND",
+            "conditions": [
+                # Trend gates first: this is a pullback screen, so the trend
+                # it is pulling back within has to exist.
+                {"field": "is_long_term_uptrend", "operator": "=", "value": True},
+                {"field": "trend_template_score", "operator": ">=", "value": 6},
+                {"field": "rs_rating", "operator": ">=", "value": 70},
+                # Location.
+                {"field": "in_fib_zone", "operator": "=", "value": True},
+                # Volume shape: confirmed advance, thinned pullback. Not one
+                # "volume above average" test, which in a retracement selects
+                # for distribution as readily as accumulation (FR-17.4).
+                {"field": "vol_impulse_ratio", "operator": ">=",
+                 "value": settings.fib_vol_impulse_min},
+                {"field": "vol_dryup_ratio", "operator": "<=",
+                 "value": settings.fib_vol_dryup_max},
+                # The event. Never list on zone membership alone (FR-17.5).
+                {"field": "is_fib_reversal_bar", "operator": "=", "value": True},
+                {"field": "fib_reward_risk", "operator": ">=",
+                 "value": settings.fib_min_reward_risk},
+            ],
+        },
+        "sort": [
+            {"field": "fib_setup_score", "direction": "desc"},
+            {"field": "instrument_token", "direction": "asc"},
+        ],
+        "limit": 25,
+    },
     ALL_CONSTITUENTS: {
         "name": ALL_CONSTITUENTS,
         "version": 1,
@@ -227,6 +272,65 @@ def get_preset(name: str) -> dict[str, Any]:
     if name not in PRESETS:
         raise KeyError(f"unknown preset: {name}")
     return PRESETS[name]
+
+
+def fib_funnel(conn: duckdb.DuckDBPyConnection, as_of: date) -> list[dict[str, Any]]:
+    """Stage-by-stage survivor counts for the FR-17 screen (FR-17.8).
+
+    An empty result grid has two very different causes: the setup is absent
+    today, or a threshold is misconfigured. They look identical without this,
+    and only one of them is worth acting on.
+    """
+    row = conn.execute(
+        """
+        SELECT
+          count(*),
+          sum(CASE WHEN is_eligible AND is_long_term_uptrend
+                    AND trend_template_score >= 6 AND rs_rating >= 70
+                   THEN 1 ELSE 0 END),
+          sum(CASE WHEN is_eligible AND is_long_term_uptrend
+                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND fib_leg_high_price IS NOT NULL THEN 1 ELSE 0 END),
+          sum(CASE WHEN is_eligible AND is_long_term_uptrend
+                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND in_fib_zone THEN 1 ELSE 0 END),
+          sum(CASE WHEN is_eligible AND is_long_term_uptrend
+                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND in_fib_zone AND vol_impulse_ratio >= ?
+                    AND vol_dryup_ratio <= ? THEN 1 ELSE 0 END),
+          sum(CASE WHEN is_eligible AND is_long_term_uptrend
+                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND in_fib_zone AND vol_impulse_ratio >= ?
+                    AND vol_dryup_ratio <= ? AND is_fib_reversal_bar
+                   THEN 1 ELSE 0 END),
+          sum(CASE WHEN is_eligible AND is_long_term_uptrend
+                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND in_fib_zone AND vol_impulse_ratio >= ?
+                    AND vol_dryup_ratio <= ? AND is_fib_reversal_bar
+                    AND fib_reward_risk >= ? THEN 1 ELSE 0 END)
+          FROM metrics_daily WHERE trade_date = ?
+        """,
+        [
+            settings.fib_vol_impulse_min, settings.fib_vol_dryup_max,
+            settings.fib_vol_impulse_min, settings.fib_vol_dryup_max,
+            settings.fib_vol_impulse_min, settings.fib_vol_dryup_max,
+            settings.fib_min_reward_risk, as_of,
+        ],
+    ).fetchone()
+
+    labels = (
+        ("universe", "NIFTY 500 constituents"),
+        ("gated", "Eligible, in a long-term uptrend, RS >= 70"),
+        ("valid_leg", "Has a confirmed impulse leg"),
+        ("in_zone", "Price inside the 50-61.8% band"),
+        ("volume_shape", "Advance confirmed, pullback thinned"),
+        ("reversal_bar", "Turned today"),
+        ("passed_rr", "Reward:risk at or above the floor"),
+    )
+    return [
+        {"stage": key, "label": text, "count": int(value or 0)}
+        for (key, text), value in zip(labels, row)
+    ]
 
 
 def breadth(conn: duckdb.DuckDBPyConnection, as_of: date) -> dict[str, int]:

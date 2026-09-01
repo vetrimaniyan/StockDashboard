@@ -52,6 +52,28 @@ class Settings(BaseSettings):
     w_atr_pct: float = 0.10  # subtracted
     w_rel_volume: float = 0.05
 
+    # --- Fibonacci retracement zone (FR-17) ------------------------------
+    # Same fractal reach as FR-14, deliberately: the two screens must agree
+    # about what a swing is (FR-17.1).
+    fib_swing_reach: int = 3
+    fib_min_amplitude: float = 0.20  # (B-A)/A
+    fib_min_leg_sessions: int = 15
+    fib_max_leg_sessions: int = 250
+    fib_max_leg_age: int = 60  # sessions since B
+    fib_max_leg_shock: float = 0.20  # largest single-session move inside the leg
+    fib_max_leg_attempts: int = 3
+    fib_vol_baseline: int = 50  # sessions before A for the volume baseline
+    # Three ratios, not one threshold. In a retracement, elevated volume
+    # selects for distribution as readily as accumulation; the shape that
+    # precedes a turn is confirmed advance, thin pullback, expansion on the
+    # turn (FR-17.4).
+    fib_vol_impulse_min: float = 1.20
+    fib_vol_dryup_max: float = 0.80
+    fib_reversal_close_position: float = 0.60
+    fib_reversal_rel_volume: float = 1.50
+    fib_stop_atr_buffer: float = 0.5
+    fib_min_reward_risk: float = 2.0
+
     # --- Risk (FR-10) ----------------------------------------------------
     atr_stop_multiple: float = 2.0
     risk_per_trade_pct: float = 0.0075

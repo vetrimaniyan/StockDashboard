@@ -16,6 +16,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from alpha500.config import settings
+from alpha500.metrics import fib
 from alpha500.metrics import kernels as k
 from alpha500.metrics import periods as p
 
@@ -91,6 +92,14 @@ def compute_series_metrics(
     cols["ma_alignment"] = _bool(
         (close > sma_50) & (sma_50 > sma_100) & (sma_100 > sma_200),
         sma_50, sma_100, sma_200,
+    )
+
+    # FR-17.6's trend gate, kept separate from ma_alignment on purpose.
+    # ma_alignment also demands close > sma_50, which a 50-61.8% retracement
+    # normally breaks — using it to gate a pullback screen would exclude the
+    # very setups the screen exists to find.
+    cols["is_long_term_uptrend"] = _bool(
+        (close > sma_200) & (sma_50 > sma_200), sma_50, sma_200
     )
 
     # --- 52-week (5.6) ---------------------------------------------------
@@ -214,6 +223,22 @@ def compute_series_metrics(
     )
 
     cols["close_adj"] = close
+
+    # --- Fibonacci retracement zone (FR-17) ------------------------------
+    # Last, because it consumes atr_14, rel_volume and ret_1d computed above.
+    cols.update(
+        fib.compute_fib_metrics(
+            trade_date=trade_date,
+            open_=open_,
+            high=high,
+            low=low,
+            close=close,
+            volume=volume,
+            atr_14=atr_14,
+            rel_volume=rel_volume,
+            ret_1d=ret_1d,
+        )
+    )
 
     return SeriesMetrics(trade_date=trade_date, close=close, columns=cols)
 

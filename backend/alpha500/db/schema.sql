@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
     ema_21 DOUBLE, ema_50 DOUBLE,
     sma_200_slope_1m DOUBLE,
     ma_alignment BOOLEAN,
+    is_long_term_uptrend BOOLEAN,
     high_52w DOUBLE, low_52w DOUBLE,
     pct_from_52w_high DOUBLE, pct_above_52w_low DOUBLE,
     range_position_52w DOUBLE,
@@ -122,6 +123,34 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
     history_days INTEGER,
     is_eligible BOOLEAN,
     ineligible_reason VARCHAR,
+    -- FR-17: Fibonacci retracement zone. Anchors carry both the session the
+    -- extreme printed and the session it became usable; screening and
+    -- backtesting must reference the confirmed date, never the extreme.
+    fib_leg_low_date DATE,
+    fib_leg_low_price DOUBLE,
+    fib_leg_high_date DATE,
+    fib_leg_high_price DOUBLE,
+    fib_leg_confirmed_date DATE,
+    fib_leg_amplitude_pct DOUBLE,
+    fib_leg_sessions INTEGER,
+    fib_level_382 DOUBLE,
+    fib_level_500 DOUBLE,
+    fib_level_618 DOUBLE,
+    fib_level_786 DOUBLE,
+    fib_retracement_ratio DOUBLE,
+    fib_max_retracement DOUBLE,
+    in_fib_zone BOOLEAN,
+    fib_sessions_in_zone INTEGER,
+    fib_zone_status VARCHAR,
+    fib_zone_entry_type VARCHAR,
+    vol_impulse_ratio DOUBLE,
+    vol_dryup_ratio DOUBLE,
+    is_fib_reversal_bar BOOLEAN,
+    fib_stop DOUBLE,
+    fib_target DOUBLE,
+    fib_reward_risk DOUBLE,
+    fib_exclusion_reason VARCHAR,
+    fib_setup_score DOUBLE,
     PRIMARY KEY (instrument_token, trade_date)
 );
 

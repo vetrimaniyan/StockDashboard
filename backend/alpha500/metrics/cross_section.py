@@ -113,6 +113,45 @@ def composite_z(
     return np.where(eligible, total, np.nan)
 
 
+FIB_SETUP_WEIGHTS: dict[str, float] = {
+    "momentum_score": 0.30,
+    "rs_rating": 0.20,
+    # Inverted: a *thinner* pullback is the constructive shape, so a lower
+    # dry-up ratio must score higher (FR-17.4).
+    "inv_vol_dryup": 0.20,
+    "rel_volume": 0.15,
+    "fib_sessions_in_zone": 0.15,
+}
+
+
+def fib_setup_score(
+    components: dict[str, Floats], eligible: NDArray[np.bool_]
+) -> Floats:
+    """Rank for the FR-17.6 screen: winsorised, z-scored, weighted.
+
+    ``fib_retracement_ratio`` is deliberately absent and must never be added.
+    A stock at 58% of its leg is not better or worse than one at 52% — the
+    ratio says how much was given back, not how likely the turn is. Giving it
+    weight would rank depth as though it were evidence.
+
+    Scored over eligible names only, so an ineligible outlier cannot move the
+    mean the eligible ones are measured against.
+    """
+    total: Floats | None = None
+    for name, weight in FIB_SETUP_WEIGHTS.items():
+        raw = components.get(name)
+        if raw is None:
+            continue
+        masked = np.where(eligible, raw, np.nan)
+        z = k.zscore(k.winsorise(masked))
+        contribution = weight * np.nan_to_num(z, nan=0.0)
+        total = contribution if total is None else total + contribution
+
+    if total is None:
+        return np.full(len(eligible), np.nan)
+    return np.where(eligible, total, np.nan)
+
+
 def eligibility(
     history_days: Floats,
     turnover_20d_median: Floats,

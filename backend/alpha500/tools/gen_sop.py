@@ -43,6 +43,7 @@ S = {
 }
 
 GROUP_ORDER = ["Returns", "Relative strength", "Momentum", "Trend", "52-week",
+               "Period high", "Fibonacci zone",
                "Volatility", "Volume", "Oscillators", "Patterns", "Data quality"]
 
 GROUP_BLURB = {
@@ -55,8 +56,17 @@ GROUP_BLURB = {
     "Volume": "Whether participation is normal, and whether money is committed.",
     "Oscillators": "Standard indicators, included so familiar setups stay expressible.",
     "Patterns": "Named setups, computed as boolean flags plus their supporting numbers.",
+    "Period high": "Position against the deepest high in stored history, which is however far back the backfill reaches.",
+    "Fibonacci zone": "Retracement geometry projected onto the last impulse leg. Levels, not support: arriving at one is arithmetic, not evidence.",
     "Data quality": "Whether a row can be trusted and traded.",
 }
+
+# Any group the registry has but GROUP_ORDER does not gets appended rather
+# than dropped. Written as a fixed list, two whole metric groups went
+# missing from the glossary while the header still counted them.
+_ORDERED = GROUP_ORDER + sorted(
+    {m["group"] for m in METRICS} - set(GROUP_ORDER)
+)
 
 def esc(x): return html.escape(str(x))
 
@@ -70,7 +80,7 @@ for m in METRICS:
     by_group.setdefault(m["group"], []).append(m)
 
 glossary = ""
-for g in GROUP_ORDER:
+for g in _ORDERED:
     items = by_group.get(g, [])
     if not items:
         continue
@@ -111,6 +121,7 @@ PRESET_PLAIN = {
         "much history has been backfilled, which varies by symbol and is shown as History "
         "(sessions). Names that have already cleared the high appear in 52-Week High "
         "Breakout instead."),
+    "Fibonacci Reversal Zone": ("Entry", "A stock in a confirmed uptrend that has pulled back into the 50%-61.8% retracement of its last advance, on volume that thinned through the fall, and that turned back up today. Arriving in the zone is arithmetic — any advance giving back a meaningful part of itself passes through these levels — so the reversal bar, not the location, is the signal. These levels are geometry and are never called support: support is where buyers actually appeared, which is what the Pullback + Reversal screen measures. Most sessions return nothing, and that is the setup being absent rather than a fault."),
     "Momentum Breakdown": ("EXIT", "Holdings whose momentum rank has collapsed or that have "
         "lost the 100 SMA. This is an exit list for positions you already hold. It is never a "
         "list of stocks to short."),

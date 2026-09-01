@@ -55,6 +55,7 @@ Generated from `alpha500.metrics.registry`. Do not edit by hand — regenerate w
 | `ma_alignment` | `C_0 > sma_50 > sma_100 > sma_200` | Price and averages stacked in trend order. |
 | `trend_template_score` | `count of 8 criteria met` | 0-8 structural uptrend quality. Shown as a partial score because a 7/8 stock approaching its eighth criterion is an actionable watchlist item that a binary flag would hide. |
 | `is_trend_template` | `trend_template_score = 8` | All eight structural criteria met. |
+| `is_long_term_uptrend` | `C_0 > sma_200 AND sma_50 > sma_200` | The trend gate for pullback screens. Deliberately weaker than ma_alignment, which also requires price above the 50-day — a genuine retracement usually breaks that, so using it here would exclude the setups being looked for. |
 
 ## 52-week
 
@@ -73,6 +74,36 @@ Generated from `alpha500.metrics.registry`. Do not edit by hand — regenerate w
 |---|---|---|
 | `high_period` | `max(High) over all stored sessions before today` | Highest intraday high in this symbol's stored history, excluding today's bar. NOT an all-time high: the lookback is however much history was backfilled, which history_days reports per symbol. It is a true all-time high only for symbols listed inside that window. |
 | `pct_from_period_high` | `C_0 / high_period - 1` | Negative below the period high, 0 or above once today's close has taken it out. Read alongside history_days, which says how deep the high actually reaches. |
+
+## Fibonacci zone
+
+| Metric | Formula | Meaning |
+|---|---|---|
+| `fib_leg_low_price` | `low of the confirmed swing low A` | Start of the impulse leg the retracement is measured against. |
+| `fib_leg_high_price` | `high of the confirmed swing high B` | End of the impulse leg, and the target if price recovers it. |
+| `fib_leg_low_date` | `session A printed` | The session the swing low occurred, not the session it was knowable. |
+| `fib_leg_high_date` | `session B printed` | The session the swing high occurred. Not tradeable then — see leg confirmed date. |
+| `fib_leg_confirmed_date` | `B date + swing reach` | The session the leg first became usable. A centred fractal needs further sessions before it can be known, so screening against the leg high date instead is look-ahead bias — silent, because the screen still returns rows. |
+| `fib_leg_amplitude_pct` | `(B - A) / A` | Size of the advance being retraced. Small legs produce levels too tight to trade against. |
+| `fib_leg_sessions` | `sessions from A to B` | Trading sessions, never calendar days (FR-6.1). |
+| `fib_level_382` | `B - 0.382 * (B - A)` | Shallowest of the four levels. |
+| `fib_level_500` | `B - 0.500 * (B - A)` | Half the advance given back. Upper edge of the zone — the HIGHER price of the two bounds. |
+| `fib_level_618` | `B - 0.618 * (B - A)` | Just under two-thirds given back. Lower edge of the zone — a deeper retracement is a LOWER price. |
+| `fib_level_786` | `B - 0.786 * (B - A)` | Default stop reference: below it the premise of the leg is gone. |
+| `fib_retracement_ratio` | `(B - C_0) / (B - A)` | How much of the advance has been given back. Higher means deeper, i.e. cheaper — NOT stronger. Carries no weight in the setup score and is not a sort option: 58% is not evidence over 52%. |
+| `fib_max_retracement` | `(B - min(Low since B)) / (B - A)` | Deepest point reached since B. A leg wicked to 0.72 and recovered to 0.55 has been tested and held; one that never traded past 0.55 has not. |
+| `in_fib_zone` | `level(0.618) <= C_0 <= level(0.500)` | Inclusive at both ends. A location, not an event — never a reason to act on its own. |
+| `fib_sessions_in_zone` | `consecutive sessions with in_fib_zone true` | How long price has held the band rather than passed through it. |
+| `fib_zone_status` | `TRIGGERED \| ARMED \| NONE` | TRIGGERED needs zone, volume shape and a reversal bar together. ARMED is zone and dry-up with no turn yet. |
+| `fib_zone_entry_type` | `TRADED_INTO \| GAP_THROUGH \| RE_ENTERED` | GAP_THROUGH means price jumped the band without transacting in it, so no position was actually available there. |
+| `vol_impulse_ratio` | `mean(Vol A..B) / mean(Vol 50 before A)` | Whether the advance was confirmed by participation. |
+| `vol_dryup_ratio` | `mean(Vol B..today) / mean(Vol A..B)` | Whether the pullback thinned. Lower is more constructive — selling that dries up is the shape that precedes a turn. Elevated volume in a retracement selects for distribution just as readily. |
+| `is_fib_reversal_bar` | `close>open AND (C-L)/(H-L)>=0.60 AND rel_volume>=1.5 AND L<=level(0.500)` | The event, as opposed to the location. Range travelled and held, on expanding volume, having reached into the zone. |
+| `fib_stop` | `min(level(0.786), in-zone swing low - 0.5*ATR14)` | The wider of the two candidates on purpose: it survives noise the tighter one would be shaken out by. |
+| `fib_target` | `B` | Recovery of the leg high. Not a projection beyond it. |
+| `fib_reward_risk` | `(B - C_0) / (C_0 - fib_stop)` | Read alongside the round-trip cost: for an NRI account the withholding lands at exit, so break-even must be visible before entry. |
+| `fib_setup_score` | `0.30 z(momentum) + 0.20 z(RS) + 0.20 z(1/dry-up) + 0.15 z(rel vol) + 0.15 z(sessions in zone)` | Ranking for the Fibonacci Reversal Zone screen. Components are winsorised at the 1st/99th percentile before z-scoring (FR-6.8). The retracement ratio is deliberately excluded. |
+| `fib_exclusion_reason` | `first failing gate` | Why a constituent is not in the Fibonacci screen today. An absent row and a disqualified row are different answers, and only one is worth acting on. |
 
 ## Volatility
 

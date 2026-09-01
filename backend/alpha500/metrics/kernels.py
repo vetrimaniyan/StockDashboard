@@ -402,28 +402,105 @@ def dense_rank_desc(values: Floats) -> NDArray[np.float64]:
     return out
 
 
-def swing_lows(low: Floats, reach: int = 3) -> NDArray[np.bool_]:
-    """Fractal swing lows: a strict minimum of the window centred on each bar.
+def _fractal_extremes(
+    values: Floats, reach: int, minima: bool
+) -> NDArray[np.bool_]:
+    """One definition of "a swing", used for both directions.
 
-    A bar qualifies only when its low is below every low within ``reach``
-    sessions on *both* sides. The final ``reach`` bars therefore never qualify —
-    their right-hand window has not happened yet. That is deliberate: confirming
-    a low before the market has confirmed it is look-ahead, and a support level
-    built from unconfirmed lows would be one the operator could not have traded.
+    A bar qualifies when it is a *strict* extreme of the window centred on it,
+    ``reach`` sessions each side. The final ``reach`` bars can never qualify —
+    their right-hand window has not happened yet. That is deliberate: a swing
+    confirmed before the market has confirmed it is look-ahead, and a level
+    built from one is a level the operator could not have traded. See
+    ``swing_confirmation_index`` for the session it actually becomes usable.
     """
-    n = low.size
+    n = values.size
     out = np.zeros(n, dtype=bool)
     width = 2 * reach + 1
     if n < width:
         return out
 
-    view = np.lib.stride_tricks.sliding_window_view(low, width)
+    view = np.lib.stride_tricks.sliding_window_view(values, width)
     centre = view[:, reach]
     # Every bar in the window must be finite, the centre included.
     finite = np.isfinite(view).all(axis=1)
-    # Strict against the rest of the window, so a flat run yields no low.
+    # Strict against the rest of the window, so a flat run yields no swing.
     others = np.concatenate((view[:, :reach], view[:, reach + 1 :]), axis=1)
-    out[reach : n - reach] = finite & (centre < others.min(axis=1))
+    beats = centre < others.min(axis=1) if minima else centre > others.max(axis=1)
+    out[reach : n - reach] = finite & beats
+    return out
+
+
+def swing_lows(low: Floats, reach: int = 3) -> NDArray[np.bool_]:
+    """Fractal swing lows (FR-14.1): a strict minimum of the centred window."""
+    return _fractal_extremes(low, reach, minima=True)
+
+
+def swing_highs(high: Floats, reach: int = 3) -> NDArray[np.bool_]:
+    """Fractal swing highs (FR-17.1): the mirror of :func:`swing_lows`.
+
+    Deliberately the same fractal, not a second notion of a swing: FR-17's
+    impulse legs and FR-14's retracement levels must agree about what counts
+    as a turning point, or the two screens would disagree about the same
+    chart.
+    """
+    return _fractal_extremes(high, reach, minima=False)
+
+
+def swing_confirmation_index(extreme_index: NDArray[np.int64], reach: int) -> NDArray[np.int64]:
+    """The session a swing at ``extreme_index`` first becomes usable.
+
+    A centred fractal needs ``reach`` further sessions before it can be known,
+    so the extreme printed at ``i`` is confirmed at ``i + reach``. Screening or
+    backtesting against the extreme date instead is look-ahead bias, and it is
+    silent — the screen still returns rows and the backtest still produces a
+    return that could not have been earned.
+    """
+    return extreme_index + reach
+
+
+def sparse_max_table(values: Floats) -> list[Floats]:
+    """Build a sparse table for O(1) range-maximum queries.
+
+    FR-17.1 needs "is B the highest high between A and today" for anchor pairs
+    that differ per session. A prefix maximum cannot answer that — max is not
+    invertible — and re-scanning the range per bar is the per-bar loop D-10
+    removed. Building costs log2(n) vectorised passes and queries are then
+    array-at-a-time; see :func:`range_max`.
+    """
+    n = values.size
+    table = [values.astype(np.float64, copy=True)]
+    span = 1
+    while span * 2 <= n:
+        prev = table[-1]
+        width = n - span * 2 + 1
+        table.append(np.maximum(prev[:width], prev[span : span + width]))
+        span *= 2
+    return table
+
+
+def range_max(table: list[Floats], lo: NDArray[np.int64], hi: NDArray[np.int64]) -> Floats:
+    """Maximum over each inclusive ``[lo, hi]`` range, vectorised.
+
+    Standard two-overlapping-blocks lookup. The loop is over table levels —
+    at most log2(n), about 11 for this store — not over bars.
+    """
+    out = np.full(lo.shape, np.nan, dtype=np.float64)
+    valid = (hi >= lo) & (lo >= 0)
+    if not valid.any():
+        return out
+    length = np.where(valid, hi - lo + 1, 1)
+    level = np.floor(np.log2(np.maximum(length, 1))).astype(np.int64)
+    level = np.minimum(level, len(table) - 1)
+
+    for j in np.unique(level[valid]):
+        block = table[int(j)]
+        span = 1 << int(j)
+        sel = valid & (level == j)
+        left = lo[sel]
+        right = hi[sel] - span + 1
+        # Both starts are in range by construction: span <= length.
+        out[sel] = np.maximum(block[left], block[np.maximum(right, 0)])
     return out
 
 

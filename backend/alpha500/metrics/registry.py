@@ -167,6 +167,110 @@ REGISTRY: Final[tuple[MetricDef, ...]] = (
        "taken it out. Read alongside history_days, which says how deep the "
        "high actually reaches.", "Period high", "percent", True),
 
+    _m("is_long_term_uptrend", "Long-term uptrend",
+       "C_0 > sma_200 AND sma_50 > sma_200",
+       "The trend gate for pullback screens. Deliberately weaker than "
+       "ma_alignment, which also requires price above the 50-day — a "
+       "genuine retracement usually breaks that, so using it here would "
+       "exclude the setups being looked for.", "Trend", "boolean", True),
+
+    # --- Fibonacci retracement zone (FR-17) ------------------------------
+    # Never described as "support" (FR-17.9). A level is support when buyers
+    # have actually appeared there — that is support_level, built from real
+    # swing lows. These are geometry projected onto a past advance.
+    _m("fib_leg_low_price", "Leg low (A)", "low of the confirmed swing low A",
+       "Start of the impulse leg the retracement is measured against.",
+       "Fibonacci zone", "currency"),
+    _m("fib_leg_high_price", "Leg high (B)", "high of the confirmed swing high B",
+       "End of the impulse leg, and the target if price recovers it.",
+       "Fibonacci zone", "currency"),
+    _m("fib_leg_low_date", "Leg low date", "session A printed",
+       "The session the swing low occurred, not the session it was knowable.",
+       "Fibonacci zone", "date"),
+    _m("fib_leg_high_date", "Leg high date", "session B printed",
+       "The session the swing high occurred. Not tradeable then — see leg "
+       "confirmed date.", "Fibonacci zone", "date"),
+    _m("fib_leg_confirmed_date", "Leg confirmed", "B date + swing reach",
+       "The session the leg first became usable. A centred fractal needs "
+       "further sessions before it can be known, so screening against the "
+       "leg high date instead is look-ahead bias — silent, because the screen "
+       "still returns rows.", "Fibonacci zone", "date"),
+    _m("fib_leg_amplitude_pct", "Leg amplitude", "(B - A) / A",
+       "Size of the advance being retraced. Small legs produce levels too "
+       "tight to trade against.", "Fibonacci zone", "percent", True),
+    _m("fib_leg_sessions", "Leg length", "sessions from A to B",
+       "Trading sessions, never calendar days (FR-6.1).",
+       "Fibonacci zone", "integer"),
+    _m("fib_level_382", "38.2% level", "B - 0.382 * (B - A)",
+       "Shallowest of the four levels.", "Fibonacci zone", "currency"),
+    _m("fib_level_500", "50% level", "B - 0.500 * (B - A)",
+       "Half the advance given back. Upper edge of the zone — the HIGHER "
+       "price of the two bounds.", "Fibonacci zone", "currency"),
+    _m("fib_level_618", "61.8% level", "B - 0.618 * (B - A)",
+       "Just under two-thirds given back. Lower edge of the zone — a deeper "
+       "retracement is a LOWER price.", "Fibonacci zone", "currency"),
+    _m("fib_level_786", "78.6% level", "B - 0.786 * (B - A)",
+       "Default stop reference: below it the premise of the leg is gone.",
+       "Fibonacci zone", "currency"),
+    _m("fib_retracement_ratio", "Retracement", "(B - C_0) / (B - A)",
+       "How much of the advance has been given back. Higher means deeper, "
+       "i.e. cheaper — NOT stronger. Carries no weight in the setup score "
+       "and is not a sort option: 58% is not evidence over 52%.",
+       "Fibonacci zone", "ratio"),
+    _m("fib_max_retracement", "Max retracement", "(B - min(Low since B)) / (B - A)",
+       "Deepest point reached since B. A leg wicked to 0.72 and recovered to "
+       "0.55 has been tested and held; one that never traded past 0.55 has "
+       "not.", "Fibonacci zone", "ratio"),
+    _m("in_fib_zone", "In zone", "level(0.618) <= C_0 <= level(0.500)",
+       "Inclusive at both ends. A location, not an event — never a reason to "
+       "act on its own.", "Fibonacci zone", "boolean"),
+    _m("fib_sessions_in_zone", "Sessions in zone",
+       "consecutive sessions with in_fib_zone true",
+       "How long price has held the band rather than passed through it.",
+       "Fibonacci zone", "integer", True),
+    _m("fib_zone_status", "Zone status", "TRIGGERED | ARMED | NONE",
+       "TRIGGERED needs zone, volume shape and a reversal bar together. "
+       "ARMED is zone and dry-up with no turn yet.", "Fibonacci zone", "text"),
+    _m("fib_zone_entry_type", "Entry type", "TRADED_INTO | GAP_THROUGH | RE_ENTERED",
+       "GAP_THROUGH means price jumped the band without transacting in it, "
+       "so no position was actually available there.",
+       "Fibonacci zone", "text"),
+    _m("vol_impulse_ratio", "Impulse volume", "mean(Vol A..B) / mean(Vol 50 before A)",
+       "Whether the advance was confirmed by participation.",
+       "Fibonacci zone", "ratio", True),
+    _m("vol_dryup_ratio", "Pull-back volume", "mean(Vol B..today) / mean(Vol A..B)",
+       "Whether the pullback thinned. Lower is more constructive — selling "
+       "that dries up is the shape that precedes a turn. Elevated volume in a "
+       "retracement selects for distribution just as readily.",
+       "Fibonacci zone", "ratio", False),
+    _m("is_fib_reversal_bar", "Reversal bar",
+       "close>open AND (C-L)/(H-L)>=0.60 AND rel_volume>=1.5 AND L<=level(0.500)",
+       "The event, as opposed to the location. Range travelled and held, on "
+       "expanding volume, having reached into the zone.",
+       "Fibonacci zone", "boolean", True),
+    _m("fib_stop", "Zone stop", "min(level(0.786), in-zone swing low - 0.5*ATR14)",
+       "The wider of the two candidates on purpose: it survives noise the "
+       "tighter one would be shaken out by.", "Fibonacci zone", "currency"),
+    _m("fib_target", "Zone target", "B",
+       "Recovery of the leg high. Not a projection beyond it.",
+       "Fibonacci zone", "currency"),
+    _m("fib_reward_risk", "Reward:risk", "(B - C_0) / (C_0 - fib_stop)",
+       "Read alongside the round-trip cost: for an NRI account the "
+       "withholding lands at exit, so break-even must be visible before "
+       "entry.", "Fibonacci zone", "ratio", True),
+    _m("fib_setup_score", "Setup score",
+       "0.30 z(momentum) + 0.20 z(RS) + 0.20 z(1/dry-up) + 0.15 z(rel vol) "
+       "+ 0.15 z(sessions in zone)",
+       "Ranking for the Fibonacci Reversal Zone screen. Components are "
+       "winsorised at the 1st/99th percentile before z-scoring (FR-6.8). The "
+       "retracement ratio is deliberately excluded.",
+       "Fibonacci zone", "number", True),
+    _m("fib_exclusion_reason", "Zone excluded because",
+       "first failing gate",
+       "Why a constituent is not in the Fibonacci screen today. An absent row "
+       "and a disqualified row are different answers, and only one is worth "
+       "acting on.", "Fibonacci zone", "text"),
+
     # --- volatility ------------------------------------------------------
     _m("atr_14", "ATR 14", "Wilder-smoothed 14-period mean of true range",
        "Average true range. Drives the stop distance and position size.",
