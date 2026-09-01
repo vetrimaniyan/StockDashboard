@@ -63,6 +63,69 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_") or "screen"
 
 
+# Mirrors the grid's default columns. Without a list the export carries every
+# metric in the registry, which is an unreadable wall rather than a screen.
+NIGHTLY_COLUMNS: tuple[str, ...] = (
+    "tradingsymbol", "name", "close", "index_tier", "market_cap",
+    "ret_1d", "ret_1w", "ret_1m", "rs_rating", "momentum_rank", "momentum_score",
+    "trend_template_score", "range_position_52w", "pct_from_52w_high",
+    "pct_from_period_high", "history_days", "fib_zone_status",
+    "rel_volume", "atr_pct_14", "rsi_14", "turnover_20d_median", "industry",
+)
+
+
+def export_nightly(conn: Any, as_of: date) -> dict[str, Any]:
+    """Refresh the shareable HTML export of every non-empty screen.
+
+    Writes into ``exports/latest`` under stable, un-timestamped names, so
+    there is always one current file per screen to hand to a reviewer rather
+    than a year of accumulated snapshots. The timestamped exports produced on
+    demand from the UI are untouched and keep their FR-9.7 names.
+
+    The directory is cleared first, deliberately. A screen that returned rows
+    yesterday and none today must not leave yesterday's file sitting there
+    looking current — presence means "this screen had rows in the latest
+    run", and a stale file that reads as fresh is the failure this project
+    treats as its worst (FR-8.9). Each file still carries its own provenance
+    block with the data-as-of date, so the claim is checkable.
+    """
+    from alpha500.screens.filter_engine import run_screen
+    from alpha500.screens.presets import PRESETS
+
+    out_dir = settings.export_dir / "latest"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob("*.html"):
+        stale.unlink(missing_ok=True)
+
+    written, skipped, failed = [], [], []
+    for name, definition in PRESETS.items():
+        try:
+            rows = run_screen(conn, definition, as_of)
+        except Exception as exc:  # noqa: BLE001 - one bad preset must not fail the run
+            failed.append(f"{name}: {exc}")
+            continue
+        if not rows:
+            # Absent is a real answer, not an error. It is reported rather
+            # than written, so nobody reads a stale file as today's result.
+            skipped.append(name)
+            continue
+        try:
+            produced = export_html(
+                rows, NIGHTLY_COLUMNS, name, definition, as_of, out_dir=out_dir
+            )
+            produced.replace(out_dir / f"{_slug(name)}.html")
+            written.append(name)
+        except Exception as exc:  # noqa: BLE001
+            failed.append(f"{name}: {exc}")
+
+    return {
+        "dir": out_dir,
+        "written": written,
+        "skipped": skipped,
+        "failed": failed,
+    }
+
+
 def build_filename(screen_name: str, data_as_of: date | None,
                    generated_at: datetime, ext: str) -> str:
     """FR-9.7: ``{slug}_{data_as_of:YYYYMMDD}_{generated:HHMMSS}.{ext}``."""

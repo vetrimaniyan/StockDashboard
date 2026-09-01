@@ -191,6 +191,32 @@ correctly-scheduled job look wrong. Use the same source the scheduler uses:
 
 ## Sharing the dashboard with someone else
 
+### Exports, refreshed nightly
+
+The pipeline's `export_screens` stage rewrites `exports/latest/` on every run —
+one self-contained HTML file per screen that had rows, under a stable name:
+
+```
+exports/latest/momentum_leaders.html
+exports/latest/momentum_breakdown.html
+...
+```
+
+Send them as-is. They load nothing remotely, so they render on a machine that
+has never seen this project, and each carries a provenance block naming the
+screen, its filters, the data-as-of date and the row count.
+
+**An absent file means that screen found nothing.** The directory is cleared
+at the start of each run, deliberately: a screen that had rows yesterday and
+none today must not leave yesterday's file sitting there reading as current.
+Say so when sharing, or a missing screen looks like a fault rather than a
+setup being absent.
+
+The timestamped exports from the UI's Export buttons land in `exports/` and
+are never touched by this stage.
+
+### Live access
+
 The API has authentication (NFR-4.5), off by default. With no token configured
 it is loopback-only and behaves exactly as it always did.
 

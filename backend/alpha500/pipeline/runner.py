@@ -17,6 +17,7 @@ from alpha500.config import settings
 from alpha500.db import store
 from alpha500.db.backup import backup_app_db
 from alpha500.db.connection import analytical, app, init_databases
+from alpha500.exports import export_nightly
 from alpha500.metrics.engine import compute_metrics_for_date
 from alpha500.mktcal import calendar as cal
 from alpha500.pipeline import ingest
@@ -168,6 +169,27 @@ class Pipeline:
 
             with self._stage(result, "run_screens") as ctx:
                 ctx["rows"] = materialise_presets(conn, as_of)
+
+            # Shareable copies, refreshed while the connection is still open.
+            # Never fatal: the metrics are the pipeline's product and a failed
+            # file write must not cost them.
+            with self._stage(result, "export_screens") as ctx:
+                try:
+                    summary = export_nightly(conn, as_of)
+                    ctx["rows"] = len(summary["written"])
+                    note = f"{len(summary['written'])} written"
+                    if summary["skipped"]:
+                        note += f", {len(summary['skipped'])} empty today"
+                    if summary["failed"]:
+                        note += f", {len(summary['failed'])} failed"
+                        result.messages.append(
+                            "export: " + "; ".join(summary["failed"])
+                        )
+                    ctx["message"] = note
+                except Exception as exc:  # noqa: BLE001
+                    ctx["status"] = "FAILED"
+                    ctx["message"] = str(exc)
+                    result.messages.append(f"screen export failed: {exc}")
 
         # Last, and deliberately outside the analytical connection. The user
         # store is the half of the data that no backfill can reconstruct, so
