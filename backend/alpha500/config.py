@@ -19,6 +19,12 @@ class Settings(BaseSettings):
 
     data_dir: Path = REPO_ROOT / "data"
     export_dir: Path = REPO_ROOT / "exports"
+    # Where app.sqlite snapshots go. Defaults beside the data, which guards
+    # against corruption and accidental deletion but NOT against losing the
+    # disk. Point it at a synced or external folder for that:
+    #   ALPHA500_BACKUP_DIR=C:/Users/you/OneDrive/alpha500-backups
+    backup_dir: Path = REPO_ROOT / "data" / "backups"
+    backup_keep: int = 30  # snapshots retained; unchanged days do not add one
 
     # --- Providers -------------------------------------------------------
     # Kite Connect is a paid subscription; this build runs on free sources.

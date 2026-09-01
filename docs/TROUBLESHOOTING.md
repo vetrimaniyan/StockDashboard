@@ -189,6 +189,52 @@ correctly-scheduled job look wrong. Use the same source the scheduler uses:
 
 ---
 
+## Restoring the user store
+
+`data/alpha500.duckdb` is rebuildable from a backfill. `data/app.sqlite` is
+not — the watchlist, journal, saved screens and weight profiles exist nowhere
+else, which is why the two databases are separate in the first place.
+
+The pipeline snapshots it as its last stage, and you can take one any time:
+
+```bash
+.venv/Scripts/python -m alpha500.cli backup
+```
+
+Snapshots land in `data/backups/` as `app-YYYYmmdd-HHMMSS-NN.sqlite`, newest
+last. An unchanged store produces no new file, so a quiet week leaves one
+snapshot rather than seven identical ones. Thirty are retained.
+
+To restore, stop the API first — it holds the file open — then swap:
+
+```bash
+cp data/app.sqlite data/app.sqlite.before-restore
+```
+
+```bash
+cp data/backups/app-YYYYmmdd-HHMMSS-NN.sqlite data/app.sqlite
+```
+
+Check what you are restoring *before* overwriting, since job history is the
+quickest way to tell one snapshot from another:
+
+```bash
+.venv/Scripts/python -c "import sqlite3,sys; c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True); print(c.execute('PRAGMA integrity_check').fetchone()[0]); print(c.execute('SELECT max(ended_at) FROM job_runs').fetchone()[0])" data/backups/app-YYYYmmdd-HHMMSS-NN.sqlite
+```
+
+**These snapshots sit on the same disk as the original.** That covers
+corruption and accidental deletion, not drive failure. For off-machine, point
+the destination at a synced folder — no code change needed:
+
+```bash
+ALPHA500_BACKUP_DIR=C:/Users/gokul/OneDrive/alpha500-backups
+```
+
+They are gitignored on purpose: the store holds your own trading data, and the
+GitHub remote is for code.
+
+---
+
 ## Recovery, in order
 
 1. `scripts/scheduler_status.py` — decide which layer is at fault.

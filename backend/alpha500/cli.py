@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 import time
+from pathlib import Path
 from datetime import date, datetime, timedelta
 
 from alpha500.config import settings
@@ -326,6 +327,19 @@ def cmd_reconcile(_args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_backup(args: argparse.Namespace) -> int:
+    """Snapshot the user store on demand. The pipeline also does this nightly."""
+    from alpha500.db.backup import backup_app_db
+
+    summary = backup_app_db(destination=args.to, keep=args.keep)
+    print(f"  {summary['status']}: {summary['reason']}")
+    if summary.get("path"):
+        print(f"  {summary['path']}")
+    if summary.get("kept") is not None:
+        print(f"  {summary['kept']} snapshot(s) retained, {summary.get('pruned', 0)} pruned")
+    return 0 if summary["status"] != "FAILED" else 1
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -437,6 +451,11 @@ def main(argv: list[str] | None = None) -> int:
         help="sample every Nth session (5 = weekly); 1 fetches every session",
     )
 
+    p_backup = sub.add_parser("backup", help="snapshot app.sqlite (user data)")
+    p_backup.add_argument("--to", type=Path, default=None,
+                          help="destination directory; defaults to ALPHA500_BACKUP_DIR")
+    p_backup.add_argument("--keep", type=int, default=None,
+                          help="snapshots to retain (default 30)")
     p_serve = sub.add_parser("serve", help="start the API")
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)
@@ -459,7 +478,7 @@ def main(argv: list[str] | None = None) -> int:
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
         "materialise": cmd_materialise, "backtest": cmd_backtest,
         "marketcap": cmd_marketcap, "indices": cmd_indices,
-        "reconcile": cmd_reconcile, "serve": cmd_serve,
+        "reconcile": cmd_reconcile, "backup": cmd_backup, "serve": cmd_serve,
     }
     return handlers[args.command](args)
 

@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterator
 
 from alpha500.config import settings
 from alpha500.db import store
+from alpha500.db.backup import backup_app_db
 from alpha500.db.connection import analytical, app, init_databases
 from alpha500.metrics.engine import compute_metrics_for_date
 from alpha500.mktcal import calendar as cal
@@ -167,6 +168,22 @@ class Pipeline:
 
             with self._stage(result, "run_screens") as ctx:
                 ctx["rows"] = materialise_presets(conn, as_of)
+
+        # Last, and deliberately outside the analytical connection. The user
+        # store is the half of the data that no backfill can reconstruct, so
+        # it is snapshotted on every run that gets this far. A backup nobody
+        # remembers to take is not a backup.
+        with self._stage(result, "backup_app_db") as ctx:
+            summary = backup_app_db()
+            outcome = str(summary["status"])
+            ctx["message"] = f"{outcome}: {summary['reason']}"
+            # job_runs records OK/FAILED/SKIPPED only; an unchanged store is a
+            # successful backup, and the message says which.
+            ctx["status"] = {"UNCHANGED": "OK"}.get(outcome, outcome)
+            if outcome == "FAILED":
+                # Reported, never fatal. The night's metrics are already
+                # written, and losing them to a failed copy would be perverse.
+                result.messages.append(f"app.sqlite backup failed: {summary['reason']}")
 
         return result
 
