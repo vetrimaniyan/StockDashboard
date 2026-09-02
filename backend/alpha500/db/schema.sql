@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS metrics_daily (
     fib_zone_entry_type VARCHAR,
     vol_impulse_ratio DOUBLE,
     vol_dryup_ratio DOUBLE,
+    fib_turn_vol_ratio DOUBLE,
     is_fib_reversal_bar BOOLEAN,
     fib_stop DOUBLE,
     fib_target DOUBLE,

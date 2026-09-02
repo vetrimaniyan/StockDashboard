@@ -352,10 +352,22 @@ close 470 gives 0.56250. Closes at 480.00 and 461.12 are inside, 481.00 and
 ---
 
 **FR-17.4/17.5 — Volume shape and the reversal bar.** Three ratios, not one
-threshold: impulse, dry-up and relative volume. A single "volume above
-average" test MUST NOT be used — in a retracement, elevated volume selects for
-distribution as readily as accumulation. Delivery against its 20-session mean
-is a caution badge only, never a filter (FR-2.7 is warn-not-block).
+threshold: impulse, dry-up and the turn's own expansion. A single "volume
+above average" test MUST NOT be used — in a retracement, elevated volume
+selects for distribution as readily as accumulation. Delivery against its
+20-session mean is a caution badge only, never a filter (FR-2.7 is
+warn-not-block).
+
+The pullback window is `(B, today)`, open at BOTH ends, and the dry-up ratio
+and the turn ratio MUST share it. Today is excluded because it is the session
+those ratios exist to judge: with today inside the average, a heavy turn lifts
+the very number that has to read thin before the turn is examined, so the
+better the bar the likelier it fails its own gate. The turn MUST be measured
+against that pullback and MUST NOT use `rel_volume`, whose 50-session window
+spans the impulse leg this same requirement has just demanded be heavy — that
+asks the most volume of the turn exactly where the advance was best confirmed.
+A pullback shorter than three sessions leaves the turn ratio null and the bar
+unconfirmable; guessing from two sessions is worse than saying nothing.
 
 A symbol MUST NOT be TRIGGERED on zone membership alone. Being in the band is
 a location; the reversal bar is the event. Conflating them produces a standing
@@ -363,7 +375,8 @@ list of stocks in decline.
 
 *Acceptance:* pre-leg 100000, leg 145000, pullback 98600 gives 1.45 and 0.68.
 O 462 H 472 L 460 C 470 gives close position 0.83333 and passes; C 465 gives
-0.41667 and fails.
+0.41667 and fails. With today's volume at 197200 against that 98600 pullback
+the dry-up ratio stays 0.68, not 0.816, and the turn ratio reads 2.0.
 
 *Status:* Built
 

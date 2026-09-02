@@ -62,6 +62,7 @@ export function FibWorking({ metrics }: { metrics: Metrics }) {
   const rr = num(metrics, 'fib_reward_risk')
   const impulse = num(metrics, 'vol_impulse_ratio')
   const dryup = num(metrics, 'vol_dryup_ratio')
+  const turn = num(metrics, 'fib_turn_vol_ratio')
   const delivery = num(metrics, 'delivery_pct')
   const deliveryMean = num(metrics, 'delivery_pct_sma_20')
   const lowDelivery =
@@ -141,8 +142,17 @@ export function FibWorking({ metrics }: { metrics: Metrics }) {
           <Row label="Impulse — mean(A→B) / mean(50 before A)">
             {ratio(impulse)}
           </Row>
-          <Row label="Dry-up — mean(B→today) / mean(A→B)">{ratio(dryup)}</Row>
-          <Row label="Relative volume today">
+          <Row label="Dry-up — mean(B→yesterday) / mean(A→B)">
+            {ratio(dryup)}
+          </Row>
+          <Row label="Turn — today / mean(B→yesterday)">
+            {ratio(turn, 2)}
+          </Row>
+          {/* Shown because it is the number a reader expects and it is NOT the
+              one the bar is judged on: its 50-session window spans the impulse
+              leg, so it asks the most of the turn where the advance was best
+              confirmed (FR-17.4). */}
+          <Row label="Relative volume (vs 50-session mean, not a gate)">
             {ratio(num(metrics, 'rel_volume'), 2)}
           </Row>
           {lowDelivery && (

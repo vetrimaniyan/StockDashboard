@@ -225,7 +225,7 @@ def compute_series_metrics(
     cols["close_adj"] = close
 
     # --- Fibonacci retracement zone (FR-17) ------------------------------
-    # Last, because it consumes atr_14, rel_volume and ret_1d computed above.
+    # Last, because it consumes atr_14 and ret_1d computed above.
     cols.update(
         fib.compute_fib_metrics(
             trade_date=trade_date,
@@ -235,7 +235,6 @@ def compute_series_metrics(
             close=close,
             volume=volume,
             atr_14=atr_14,
-            rel_volume=rel_volume,
             ret_1d=ret_1d,
         )
     )

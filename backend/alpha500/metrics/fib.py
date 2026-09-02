@@ -67,6 +67,7 @@ FIB_COLUMNS: Final[tuple[str, ...]] = (
     "fib_level_786", "fib_retracement_ratio", "fib_max_retracement",
     "in_fib_zone", "fib_sessions_in_zone", "fib_zone_status",
     "fib_zone_entry_type", "vol_impulse_ratio", "vol_dryup_ratio",
+    "fib_turn_vol_ratio",
     "is_fib_reversal_bar", "fib_stop", "fib_target", "fib_reward_risk",
     "fib_exclusion_reason",
 )
@@ -107,7 +108,6 @@ def compute_fib_metrics(
     close: Floats,
     volume: Floats,
     atr_14: Floats,
-    rel_volume: Floats,
     ret_1d: Floats,
     adj_unresolved: bool = False,
 ) -> dict[str, NDArray[Any]]:
@@ -275,12 +275,33 @@ def compute_fib_metrics(
     vprefix = np.concatenate(([0.0], np.cumsum(vol)))
     base_lo = np.maximum(a_of - settings.fib_vol_baseline, 0)
     base_hi = np.maximum(a_of - 1, 0)
+    # The pullback is (B, today), open at BOTH ends. Open at the left because
+    # the leg high belongs to the advance. Open at the right because today is
+    # the session being judged against this window: with today inside it, a
+    # heavy turn lifts the very average that has to read thin before the turn
+    # is looked at, and the bar disqualifies itself. Measured over 2022-2026
+    # that threw out 7.3% of the turn bars whose volume actually expanded —
+    # the better the turn, the likelier it was discarded.
+    pb_lo = np.clip(safe_b + 1, 0, n - 1)
+    pb_hi = np.clip(idx - 1, 0, n - 1)
+    pb_sessions = idx - safe_b - 1
     pre = _window_mean(vprefix, np.clip(base_lo, 0, n - 1), np.clip(base_hi, 0, n - 1))
     leg = _window_mean(vprefix, safe_a, safe_b)
-    post = _window_mean(vprefix, np.clip(safe_b + 1, 0, n - 1), idx)
+    post = np.where(pb_sessions >= 1, _window_mean(vprefix, pb_lo, pb_hi), np.nan)
     with np.errstate(divide="ignore", invalid="ignore"):
         cols["vol_impulse_ratio"] = np.where(found & (pre > 0), leg / pre, np.nan)
         cols["vol_dryup_ratio"] = np.where(found & (leg > 0), post / leg, np.nan)
+        # Same window, now as the baseline the turn is measured against. One
+        # session against one or two others is noise rather than expansion, so
+        # a pullback shorter than the minimum leaves this null and the bar
+        # unconfirmable — 0.6% of in-zone sessions.
+        cols["fib_turn_vol_ratio"] = np.where(
+            found
+            & (pb_sessions >= settings.fib_reversal_vol_min_baseline)
+            & (post > 0),
+            volume / post,
+            np.nan,
+        )
 
     # --- reversal bar (FR-17.5) ------------------------------------------
     bar_span = high - low
@@ -290,7 +311,7 @@ def compute_fib_metrics(
         found
         & (close > open_)
         & (close_pos >= settings.fib_reversal_close_position)
-        & (rel_volume >= settings.fib_reversal_rel_volume)
+        & (cols["fib_turn_vol_ratio"] >= settings.fib_reversal_vol_expansion)
         & (low <= levels[0.500])
     )
     cols["is_fib_reversal_bar"] = np.nan_to_num(reversal, nan=False).astype(bool)

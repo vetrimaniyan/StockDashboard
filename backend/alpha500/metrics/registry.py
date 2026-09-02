@@ -238,15 +238,25 @@ REGISTRY: Final[tuple[MetricDef, ...]] = (
     _m("vol_impulse_ratio", "Impulse volume", "mean(Vol A..B) / mean(Vol 50 before A)",
        "Whether the advance was confirmed by participation.",
        "Fibonacci zone", "ratio", True),
-    _m("vol_dryup_ratio", "Pull-back volume", "mean(Vol B..today) / mean(Vol A..B)",
+    _m("vol_dryup_ratio", "Pull-back volume",
+       "mean(Vol B+1..yesterday) / mean(Vol A..B)",
        "Whether the pullback thinned. Lower is more constructive — selling "
        "that dries up is the shape that precedes a turn. Elevated volume in a "
-       "retracement selects for distribution just as readily.",
+       "retracement selects for distribution just as readily. Today is outside "
+       "the window: it is the session this ratio has to arm, so letting its "
+       "volume into the average lets a strong turn fail its own gate.",
        "Fibonacci zone", "ratio", False),
+    _m("fib_turn_vol_ratio", "Turn volume", "Vol_0 / mean(Vol B+1..yesterday)",
+       "Today's volume against the pullback it would be ending. Deliberately "
+       "not rel_volume: that 50-session window spans the impulse leg, so it "
+       "asks the most of the turn where the advance was best confirmed. Null "
+       "until the pullback is three sessions old.",
+       "Fibonacci zone", "ratio", True),
     _m("is_fib_reversal_bar", "Reversal bar",
-       "close>open AND (C-L)/(H-L)>=0.60 AND rel_volume>=1.5 AND L<=level(0.500)",
+       "close>open AND (C-L)/(H-L)>=0.60 AND fib_turn_vol_ratio>=1.5 "
+       "AND L<=level(0.500)",
        "The event, as opposed to the location. Range travelled and held, on "
-       "expanding volume, having reached into the zone.",
+       "volume expanding against the pullback, having reached into the zone.",
        "Fibonacci zone", "boolean", True),
     _m("fib_stop", "Zone stop", "min(level(0.786), in-zone swing low - 0.5*ATR14)",
        "The wider of the two candidates on purpose: it survives noise the "

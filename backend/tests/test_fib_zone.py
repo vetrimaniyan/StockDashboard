@@ -31,7 +31,7 @@ def build(
     tail_open: list[float] | None = None,
     tail_high: list[float] | None = None,
     tail_low: list[float] | None = None,
-    rel_volume_last: float = 1.0,
+    turn_vol_last: float = 1.0,
     pre_vol: float = 100_000.0,
     leg_vol: float = 145_000.0,
     post_vol: float = 98_600.0,
@@ -70,13 +70,15 @@ def build(
     volume[:A_IDX] = pre_vol
     volume[A_IDX : B_IDX + 1] = leg_vol
     volume[B_IDX + 1 :] = post_vol
+    # Today's volume as a multiple of the pullback it is turning, which is what
+    # the reversal bar now measures. The baseline excludes today, so this is
+    # exactly fib_turn_vol_ratio on the last bar.
+    volume[-1] = post_vol * turn_vol_last
 
     trade_date = np.array(
         [dt.date(2024, 1, 1) + dt.timedelta(days=i) for i in range(n)], dtype=object
     )
     ret_1d = np.concatenate([[np.nan], close[1:] / close[:-1] - 1.0])
-    rel_volume = np.full(n, 1.0)
-    rel_volume[-1] = rel_volume_last
 
     return fib.compute_fib_metrics(
         trade_date=trade_date,
@@ -86,7 +88,6 @@ def build(
         close=close,
         volume=volume,
         atr_14=np.full(n, atr),
-        rel_volume=rel_volume,
         ret_1d=ret_1d,
     )
 
@@ -198,22 +199,80 @@ def test_fib_volume_shape_ratios():
     assert out["vol_dryup_ratio"][-1] == pytest.approx(0.68)
 
 
-# --- FR-17.5 reversal bar ------------------------------------------------
+def test_the_turn_bar_does_not_disqualify_itself_through_the_dryup_gate():
+    """A heavy turn must not lift the pullback average that has to read thin.
 
-
-def test_fib_reversal_bar_requires_close_in_upper_range():
-    """O 462.00 H 472.00 L 460.00 C 470.00, rel_volume 2.0.
-
-    Close position = (470 - 460) / (472 - 460) = 10/12 = 0.83333, above the
-    0.60 floor; close > open; volume 2.0x; and the low 460.00 reached below
-    level(0.500) = 480.00. Passes.
+    Pullback 98600 over the four sessions behind today; today 2x that, 197200.
+    Averaged over [B+1, today] that is (4*98600 + 197200)/5 = 118320, so the
+    dry-up ratio reads 118320/145000 = 0.816 and fails its own 0.80 gate. Over
+    (B, today) it stays 98600/145000 = 0.68 and the bar is judged against a
+    pullback it had no part in.
     """
     out = build(
         [500.0, 490.0, 480.0, 475.0, 470.0],
         tail_open=[499.0, 489.0, 479.0, 474.0, 462.0],
         tail_high=[501.0, 491.0, 481.0, 476.0, 472.0],
         tail_low=[499.0, 489.0, 479.0, 474.0, 460.0],
-        rel_volume_last=2.0,
+        turn_vol_last=2.0,
+    )
+    assert out["vol_dryup_ratio"][-1] == pytest.approx(0.68)
+    assert out["fib_turn_vol_ratio"][-1] == pytest.approx(2.0)
+    assert out["fib_zone_status"][-1] == fib.TRIGGERED
+
+
+def test_turn_volume_is_measured_against_the_pullback_not_the_leg():
+    """The baseline is the quiet pullback, never a window spanning the leg.
+
+    Today is 148000 against a pullback of 98600, so turn volume is 1.50122 and
+    the bar confirms. Against a 50-session mean carrying the 145000 leg it
+    would read about 1.0 and fail — which is the volume the screen demands
+    scaling with how heavy the advance was, for no stated reason.
+    """
+    out = build(
+        [500.0, 490.0, 480.0, 475.0, 470.0],
+        tail_open=[499.0, 489.0, 479.0, 474.0, 462.0],
+        tail_high=[501.0, 491.0, 481.0, 476.0, 472.0],
+        tail_low=[499.0, 489.0, 479.0, 474.0, 460.0],
+        turn_vol_last=148_000.0 / 98_600.0,
+    )
+    assert out["fib_turn_vol_ratio"][-1] == pytest.approx(148_000 / 98_600)
+    assert out["is_fib_reversal_bar"][-1]
+
+
+def test_a_pullback_too_short_to_average_leaves_the_turn_unconfirmed():
+    """Two sessions are not a baseline, and guessing is worse than a null.
+
+    The tail here is three sessions, so today has two behind it - one short of
+    the minimum - and the ratio is null rather than a comparison against noise.
+    A null cannot clear the gate, so the bar stays unconfirmed.
+    """
+    out = build(
+        [500.0, 480.0, 470.0],
+        tail_open=[499.0, 479.0, 462.0],
+        tail_high=[501.0, 481.0, 472.0],
+        tail_low=[499.0, 479.0, 460.0],
+        turn_vol_last=3.0,
+    )
+    assert np.isnan(out["fib_turn_vol_ratio"][-1])
+    assert not out["is_fib_reversal_bar"][-1]
+
+
+# --- FR-17.5 reversal bar ------------------------------------------------
+
+
+def test_fib_reversal_bar_requires_close_in_upper_range():
+    """O 462.00 H 472.00 L 460.00 C 470.00, turn volume 2.0.
+
+    Close position = (470 - 460) / (472 - 460) = 10/12 = 0.83333, above the
+    0.60 floor; close > open; today trades at 2.0x the four pullback sessions
+    behind it; and the low 460.00 reached below level(0.500) = 480.00. Passes.
+    """
+    out = build(
+        [500.0, 490.0, 480.0, 475.0, 470.0],
+        tail_open=[499.0, 489.0, 479.0, 474.0, 462.0],
+        tail_high=[501.0, 491.0, 481.0, 476.0, 472.0],
+        tail_low=[499.0, 489.0, 479.0, 474.0, 460.0],
+        turn_vol_last=2.0,
     )
     assert bool(out["is_fib_reversal_bar"][-1])
 
@@ -229,7 +288,7 @@ def test_fib_reversal_bar_rejects_a_weak_close():
         tail_open=[499.0, 489.0, 479.0, 474.0, 462.0],
         tail_high=[501.0, 491.0, 481.0, 476.0, 472.0],
         tail_low=[499.0, 489.0, 479.0, 474.0, 460.0],
-        rel_volume_last=2.0,
+        turn_vol_last=2.0,
     )
     assert not bool(out["is_fib_reversal_bar"][-1])
 
@@ -246,7 +305,7 @@ def test_all_three_conditions_together_do_trigger():
         tail_open=[499.0, 489.0, 479.0, 474.0, 462.0],
         tail_high=[501.0, 491.0, 481.0, 476.0, 472.0],
         tail_low=[499.0, 489.0, 479.0, 474.0, 460.0],
-        rel_volume_last=2.0,
+        turn_vol_last=2.0,
     )
     assert bool(out["in_fib_zone"][-1])
     assert out["vol_impulse_ratio"][-1] == pytest.approx(1.45)
@@ -341,8 +400,7 @@ def test_short_history_is_named_not_silently_empty():
     out = fib.compute_fib_metrics(
         trade_date=np.array([dt.date(2024, 1, 1)] * n, dtype=object),
         open_=flat, high=flat + 1, low=flat - 1, close=flat,
-        volume=np.full(n, 1000.0), atr_14=np.full(n, 1.0),
-        rel_volume=np.full(n, 1.0), ret_1d=np.zeros(n),
+        volume=np.full(n, 1000.0), atr_14=np.full(n, 1.0), ret_1d=np.zeros(n),
     )
     assert out["fib_exclusion_reason"][-1] == fib.INSUFFICIENT_HISTORY
 

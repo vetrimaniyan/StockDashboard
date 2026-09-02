@@ -76,7 +76,15 @@ class Settings(BaseSettings):
     fib_vol_impulse_min: float = 1.20
     fib_vol_dryup_max: float = 0.80
     fib_reversal_close_position: float = 0.60
-    fib_reversal_rel_volume: float = 1.50
+    # Expansion on the turn is measured against the pullback the turn is
+    # ending, not against rel_volume's 50-session mean: that window spans the
+    # impulse leg, which fib_vol_impulse_min has just required to be heavy, so
+    # it would ask for the most volume from the turn exactly where the advance
+    # was best confirmed. Same 1.5 multiplier, correct denominator.
+    fib_reversal_vol_expansion: float = 1.50
+    # Below this many sessions since B there is no pullback to compare with,
+    # so the turn cannot be confirmed. Costs 0.6% of in-zone sessions.
+    fib_reversal_vol_min_baseline: int = 3
     fib_stop_atr_buffer: float = 0.5
     fib_min_reward_risk: float = 2.0
 
