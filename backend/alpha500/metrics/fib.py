@@ -351,26 +351,48 @@ def _lowest_in_zone_swing(
 ) -> Floats:
     """Lowest confirmed swing low lying inside the zone, per session.
 
-    Vectorised as a running minimum over swing lows that are (a) confirmed by
-    this session and (b) priced inside the band. Because the band moves with
-    the leg, the price test is applied per session rather than once.
+    A swing low qualifies at session ``t`` when all three hold *at t*:
+
+    * it is confirmed by then — the extreme printed at ``i`` is usable from
+      ``i + reach``, never before (FR-17.1);
+    * it printed at or after this session's B, so it belongs to the retracement
+      being measured rather than to the advance into it;
+    * its price lies inside *this session's* band.
+
+    All three tests are evaluated per session, against the leg current at that
+    session. A running minimum cannot express this. The band moves whenever the
+    leg changes, so a swing that qualified under an earlier, lower leg is not a
+    weaker candidate under the current one — it is not a candidate at all, and
+    ``np.minimum.accumulate`` has no way to drop it once taken. That is not a
+    tuning detail: carrying one forward put the stop a median 8.3 ATRs below
+    level(0.786) and, in 92% of those rows, below the leg low A — a stop past
+    the price at which ``LEG_BROKEN`` already declares the premise gone. It
+    suppressed reward:risk enough that the FR-17.6 screen listed nothing on any
+    session in four and a half years.
+
+    So the candidates are tested as a session x swing matrix instead. There are
+    O(n / reach) swings, so this is a few hundred columns, and it stays one
+    array operation rather than a per-bar loop (D-10).
     """
     n = low.size
-    idx = np.arange(n)
-    # A swing low at i is usable from i + reach onward.
-    usable = np.zeros(n, dtype=bool)
     src = np.flatnonzero(sl_flag)
     if src.size == 0:
         return np.full(n, np.nan)
-    conf = np.clip(k.swing_confirmation_index(src, reach), 0, n - 1)
-    usable[conf] = True
-    level = np.full(n, np.nan)
-    level[conf] = low[src]
-    # Carry each confirmed swing low forward, keeping the most recent ones in a
-    # running window is unnecessary: the zone test below rejects stale ones.
-    candidate = np.where(usable & (idx >= b_idx), level, np.nan)
-    inside = candidate >= zone_low
-    inside &= candidate <= zone_high
-    kept = np.where(np.nan_to_num(inside, nan=False), candidate, np.inf)
-    running = np.minimum.accumulate(kept)
-    return np.where(np.isfinite(running), running, np.nan)
+
+    # Not clipped: a swing whose confirming window runs off the end of the
+    # series never becomes usable, and clamping it to the last session would
+    # hand today a swing that is still unconfirmed.
+    conf = k.swing_confirmation_index(src, reach)
+    price = low[src]
+    idx = np.arange(n)
+
+    eligible = (
+        (conf[None, :] <= idx[:, None])            # confirmed by this session
+        & (src[None, :] >= b_idx[:, None])         # printed at or after this B
+        & (price[None, :] >= zone_low[:, None])    # inside this session's band
+        & (price[None, :] <= zone_high[:, None])
+    )
+    # NaN bounds (no leg) compare False throughout, so those sessions fall out
+    # here rather than needing a separate guard.
+    lowest = np.where(eligible, price[None, :], np.inf).min(axis=1)
+    return np.where(np.isfinite(lowest), lowest, np.nan)

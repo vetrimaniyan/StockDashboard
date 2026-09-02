@@ -355,3 +355,98 @@ def test_a_broken_leg_is_marked_rather_than_dropped():
     out = build([480.0, 460.0, 440.0, 420.0, 395.0])
     assert out["fib_exclusion_reason"][-1] == fib.LEG_BROKEN
     assert out["fib_zone_status"][-1] == fib.NONE
+
+
+def test_stop_reference_drops_a_swing_once_the_leg_moves_on():
+    """A swing that was in zone under an earlier leg is not a candidate now.
+
+    The band moves with the leg. Under leg 1 the zone is 8..12 and the swing
+    at 10.0 is the stop reference; once leg 2 puts the zone at 100..120 the
+    only valid reference is the swing at 110.0. Carrying 10.0 forward is not a
+    conservative stop, it is a price from a different chart — and it is what
+    put 92% of live stops below the leg low A, where LEG_BROKEN has already
+    declared the premise gone.
+    """
+    n, reach = 200, 3
+    low = np.full(n, 500.0)
+    for offset in range(-reach, reach + 1):
+        low[20 + offset] = 10.0 + abs(offset)
+        low[120 + offset] = 110.0 + abs(offset)
+
+    sl_flag = np.zeros(n, dtype=bool)
+    sl_flag[[20, 120]] = True
+
+    session = np.arange(n)
+    zone_low = np.where(session < 100, 8.0, 100.0)
+    zone_high = np.where(session < 100, 12.0, 120.0)
+    b_idx = np.where(session < 100, 15, 100).astype(np.int64)
+
+    out = fib._lowest_in_zone_swing(low, sl_flag, reach, zone_low, zone_high, b_idx)
+
+    assert out[30] == pytest.approx(10.0)
+    assert out[99] == pytest.approx(10.0)
+    assert out[130] == pytest.approx(110.0)
+    assert out[199] == pytest.approx(110.0)
+
+
+def test_stop_reference_is_never_outside_the_band_it_searches():
+    """Whatever comes back must be inside that session's own zone."""
+    n, reach = 200, 3
+    low = np.full(n, 500.0)
+    for offset in range(-reach, reach + 1):
+        low[20 + offset] = 10.0 + abs(offset)
+        low[120 + offset] = 110.0 + abs(offset)
+    sl_flag = np.zeros(n, dtype=bool)
+    sl_flag[[20, 120]] = True
+
+    session = np.arange(n)
+    zone_low = np.where(session < 100, 8.0, 100.0)
+    zone_high = np.where(session < 100, 12.0, 120.0)
+    b_idx = np.where(session < 100, 15, 100).astype(np.int64)
+
+    out = fib._lowest_in_zone_swing(low, sl_flag, reach, zone_low, zone_high, b_idx)
+    found = np.isfinite(out)
+    assert found.any()
+    assert np.all(out[found] >= zone_low[found])
+    assert np.all(out[found] <= zone_high[found])
+
+
+def test_stop_reference_waits_for_the_confirming_window():
+    """FR-17.1 again, on this path specifically.
+
+    The swing prints at 120 and is usable from 123. Sessions 120-122 must not
+    see it, or the stop is set from a fractal that had not completed.
+    """
+    n, reach = 200, 3
+    low = np.full(n, 500.0)
+    for offset in range(-reach, reach + 1):
+        low[120 + offset] = 110.0 + abs(offset)
+    sl_flag = np.zeros(n, dtype=bool)
+    sl_flag[120] = True
+
+    zone_low = np.full(n, 100.0)
+    zone_high = np.full(n, 120.0)
+    b_idx = np.full(n, 100, dtype=np.int64)
+
+    out = fib._lowest_in_zone_swing(low, sl_flag, reach, zone_low, zone_high, b_idx)
+
+    assert np.isnan(out[119])
+    assert np.isnan(out[122])
+    assert out[123] == pytest.approx(110.0)
+
+
+def test_stop_reference_ignores_swings_that_predate_this_leg_high():
+    """A low printed before B belongs to the advance, not to the retracement."""
+    n, reach = 200, 3
+    low = np.full(n, 500.0)
+    for offset in range(-reach, reach + 1):
+        low[40 + offset] = 110.0 + abs(offset)   # priced in the band, but early
+    sl_flag = np.zeros(n, dtype=bool)
+    sl_flag[40] = True
+
+    zone_low = np.full(n, 100.0)
+    zone_high = np.full(n, 120.0)
+    b_idx = np.full(n, 100, dtype=np.int64)      # B sits after that swing
+
+    out = fib._lowest_in_zone_swing(low, sl_flag, reach, zone_low, zone_high, b_idx)
+    assert np.all(np.isnan(out))
