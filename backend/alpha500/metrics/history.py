@@ -34,6 +34,7 @@ from alpha500.config import settings
 from alpha500.metrics import periods as p
 from alpha500.metrics.engine import (
     _BOOL_COLUMNS,
+    _DATE_COLUMNS,
     _INT_COLUMNS,
     _TEXT_COLUMNS,
     METRIC_COLUMNS,
@@ -68,6 +69,8 @@ STAGE_TABLE = "metrics_stage"
 
 
 def _sql_type(name: str) -> str:
+    if name in _DATE_COLUMNS:
+        return "DATE"
     if name in _TEXT_COLUMNS:
         return "VARCHAR"
     if name in _BOOL_COLUMNS:
@@ -78,6 +81,8 @@ def _sql_type(name: str) -> str:
 
 
 def _arrow_type(name: str) -> pa.DataType:
+    if name in _DATE_COLUMNS:
+        return pa.date32()
     if name in _TEXT_COLUMNS:
         return pa.string()
     if name in _BOOL_COLUMNS:
@@ -95,12 +100,20 @@ def _clean(name: str, values: NDArray[Any]) -> list[Any]:
     requires a metric with insufficient history to be null, never zero.
     """
     out: list[Any] = []
+    is_date = name in _DATE_COLUMNS
     is_text = name in _TEXT_COLUMNS
     is_bool = name in _BOOL_COLUMNS
     is_int = name in _INT_COLUMNS
     for value in values:
         if value is None:
             out.append(None)
+            continue
+        if is_date:
+            # A date carries no numeric reading, so it must never reach the
+            # float path below — that raises, which is how the FR-17 columns
+            # took the historical materialiser down while the nightly path
+            # (engine._coerce) handled them correctly all along.
+            out.append(value if isinstance(value, date) else None)
             continue
         if is_text:
             text = str(value).strip()
@@ -305,16 +318,27 @@ def _cross_section_for_date(
     symbols = [symbol_of.get(t, "") for t in tokens]
     codes = [series_of.get(t, "EQ") for t in tokens]
 
+    # Only numeric columns can go into a float array. Dates, text and booleans
+    # each need an object array: FR-17 staged the first two for the first time,
+    # and reading either back as a float is what took this path down.
     arrays: dict[str, NDArray[Any]] = {}
     for name in _STAGE_COLUMNS:
         values = table.column(name).to_pylist()
-        arrays[name] = np.array(
-            [np.nan if v is None else v for v in values],
-            dtype=object if name in _BOOL_COLUMNS else np.float64,
-        )
-        if name in _BOOL_COLUMNS:
+        if name in _DATE_COLUMNS:
+            arrays[name] = np.array(
+                [v if isinstance(v, date) else None for v in values], dtype=object
+            )
+        elif name in _TEXT_COLUMNS:
+            arrays[name] = np.array(
+                [None if v is None else str(v) for v in values], dtype=object
+            )
+        elif name in _BOOL_COLUMNS:
             arrays[name] = np.array(
                 [None if v is None else bool(v) for v in values], dtype=object
+            )
+        else:
+            arrays[name] = np.array(
+                [np.nan if v is None else v for v in values], dtype=np.float64
             )
 
     # Cross-sectional columns are filled in by the shared finaliser, so the
