@@ -574,9 +574,14 @@ dangles.
 | 2026-09-07 | Sector/thematic index dashboard: range and drawdown, three-state trend, breadth, rotation metrics | FR-18.1–18.11 |
 ```
 
-Also update when built: §3's capability table (add index ingestion and the
-sector view), the metric count, and §5's data-foundation table, which currently
-describes stock history only and will no longer be the whole picture.
+Applied 2026-09-07 when FR-18.1-18.4 were built: §3's capability table gained
+rows for the index series and the sector view (both Partial), its API and screen
+counts were refreshed, and its metric count was corrected to the 101 the registry
+actually serves - FR-18's index metrics sit outside the registry and are not
+counted there. §5 gained a second data-foundation table, because index history
+is deeper than the stock history, has a different basis, and reaches no
+inception; "the data foundation" is now two foundations and a requirement
+spanning both has to say which it means.
 
 ---
 

@@ -93,7 +93,8 @@ Next free: **NFR-7**, **D-12**, **B-12**.
 
 ## 3. What exists today
 
-Verified against the running system on 2026-08-31.
+Verified against the running system on 2026-08-31; the sector-index rows and
+the endpoint count on 2026-09-07.
 
 | Capability | State | Evidence |
 |---|---|---|
@@ -103,16 +104,18 @@ Verified against the running system on 2026-08-31.
 | Corporate actions (FR-3.x) | Built | Reconciliation gate passes on all 500 |
 | Validation gate (FR-4.1) | Built | Nine checks, Block/Warn severities |
 | Scheduling (FR-5.1) | Built | In-process APScheduler, 18:45 IST |
-| Metric engine (FR-6.x) | Built | **100 metrics**, hand-computed unit tests |
-| Screener (FR-7.x) | Built | Filter compiler, **9 screens** + universe browser |
-| API (§2.3) | Built | 12 endpoints, loopback only |
+| Metric engine (FR-6.x) | Built | **101 metrics**, hand-computed unit tests. FR-18's index metrics are computed outside the registry and are not counted here |
+| Screener (FR-7.x) | Built | Filter compiler, **10 screens** + universe browser |
+| API (§2.3) | Built | 16 endpoints, loopback only |
 | Frontend (FR-8.x) | Built | Dashboard, virtualised grid, stock detail |
 | Exports (FR-9.x) | Built | xlsx, csv, html, each with provenance |
 | Risk and tax (FR-10, FR-12) | Built | Stops, cash-only sizing, TDS round-trip |
 | Backtesting (Phase 3) | Partial | Engine and walk-forward exist; see §7 |
 | Operability (FR-16.x) | Built | Status command, troubleshooting runbook |
+| Sector indices (FR-18.1-18.4) | Partial | 24 tracked, 69,030 sessions; 18 with real OHLC, 6 close-only and reported unavailable |
+| Sector view (FR-18.10) | Partial | Range bar per index; no screen hand-off, and the sort awaits FR-18.8 |
 
-**Not built:** watchlist, trade journal, notification digest.
+**Not built:** watchlist, trade journal, notification digest, and FR-18.5-18.9 (sector breadth, relative strength, breadth thrust, momentum score, concentration).
 
 ### Universe as of the 2026-08-28 session
 
@@ -180,6 +183,25 @@ ones will too.
 **Depth varies enormously by symbol** — recent listings have months, not
 years. Any requirement phrased as "all-time" or "since listing" must either
 accept that limit or fund a deeper backfill first.
+
+**A second series now sits beside this one**, and it does not share these
+properties. FR-18.2 stores 69,030 sessions across 24 sectoral and thematic
+indices, reaching back to 2007-09-17 for Nifty Bank and Nifty IT — deeper than
+the stock history, and still short of any of their inceptions. Eighteen carry
+real OHLC from the vendor; six are close-only projections of a sampled
+valuation file and hold 5-12% of the sessions their span implies, which is why
+FR-18.3 reports them unavailable rather than computing a 52-week window over
+them. So "the data foundation" is now two foundations with different depths,
+different bases and different gaps, and a requirement that spans both has to
+say which it means.
+
+| Property | Index series |
+|---|---|
+| Tracked indices | 24 (14 sectoral, 10 thematic) |
+| Sessions stored | 69,030 |
+| Earliest session | 2007-09-17 (Nifty Bank, Nifty IT) |
+| Basis | 18 OHLC, 6 close-only; price return, never total return |
+| Reaches inception | None — so every peak is a period high (D-11) |
 
 The eight-year depth is deliberate, not incidental: five years started the
 usable window at an unrepresentative point and excluded the only bear phase in
