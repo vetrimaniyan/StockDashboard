@@ -171,6 +171,25 @@ CREATE TABLE IF NOT EXISTS index_ohlcv_daily (
     PRIMARY KEY (index_name, trade_date)
 );
 
+-- FR-18.1/18.2: what is actually known about each tracked index's series.
+-- Ingestion facts only. Category and documented inception are product decisions
+-- and live in the versioned config (pipeline/index_universe.py); duplicating
+-- them here would let the two drift, and the config is the record.
+--
+-- ohlc_basis says whether open/high/low are real or absent: the close-only
+-- fallback stores NULL rather than repeating close into them, so a high is
+-- either a high or it is missing, never a close wearing a high's name.
+CREATE TABLE IF NOT EXISTS indices (
+    index_name     VARCHAR PRIMARY KEY,
+    category       VARCHAR NOT NULL,
+    first_session  DATE,
+    last_session   DATE,
+    sessions       INTEGER,
+    ohlc_basis     VARCHAR,
+    source         VARCHAR,
+    refreshed_at   TIMESTAMP
+);
+
 -- Daily index valuation, from NSE's ind_close_all file. Kept apart from
 -- index_ohlcv_daily because it covers every published index, not just the one
 -- the universe is drawn from, and because P/E is a valuation input rather than

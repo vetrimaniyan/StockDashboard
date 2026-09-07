@@ -21,6 +21,7 @@ from alpha500.exports import export_nightly
 from alpha500.metrics.engine import compute_metrics_for_date
 from alpha500.mktcal import calendar as cal
 from alpha500.pipeline import ingest
+from alpha500.pipeline.indices import sync_index_valuations
 from alpha500.pipeline.validation import GateResult, run_gate
 from alpha500.providers import NseArchiveProvider, ProviderError, YahooProvider
 from alpha500.screens.presets import materialise_presets
@@ -28,6 +29,12 @@ from alpha500.screens.presets import materialise_presets
 log = logging.getLogger(__name__)
 
 StageReporter = Callable[[str, str, str], None]
+
+# How far back the nightly run re-checks index valuations. Generous on purpose:
+# the file for a session is published late in the evening and may not exist yet
+# when the run fires, and a machine that was off for a week leaves a hole. Only
+# sessions not already stored are fetched, so the usual cost is one request.
+INDEX_VALUATION_LOOKBACK_DAYS = 21
 
 
 def _report(stage: str, status: str, message: str) -> None:
@@ -126,6 +133,36 @@ class Pipeline:
 
             with self._stage(result, "fetch_index") as ctx:
                 ctx["rows"] = ingest.incremental_index(conn, yahoo)
+
+            # The index P/E panel's own data. Nothing fetched this before, so
+            # it went stale silently for as long as nobody ran `alpha500
+            # indices` by hand — and staleness in a valuation panel reads as a
+            # market that has not moved, which is the FR-8.9 failure exactly.
+            #
+            # every=1 over a short window: recent sessions are exact. The
+            # decade of history behind the medians stays a separate, manual
+            # backfill, because sampling it costs hours.
+            #
+            # Wrapped like sync_calendar. This feeds one panel and must never
+            # cost the run its metrics — but a drifted header now raises rather
+            # than storing null ratios, and that has to stay visible, so the
+            # stage is recorded FAILED rather than swallowed.
+            valuation_end = target_date or date.today()
+            try:
+                with self._stage(result, "fetch_index_valuation") as ctx:
+                    written, missing = sync_index_valuations(
+                        conn,
+                        nse,
+                        valuation_end - timedelta(days=INDEX_VALUATION_LOOKBACK_DAYS),
+                        valuation_end,
+                        every=1,
+                    )
+                    ctx["rows"] = written
+                    ctx["message"] = f"{missing} session(s) with no file"
+            except Exception:
+                result.messages.append(
+                    "index valuations not updated; the panel reports its own as-of date"
+                )
 
             if skip_corporate_actions:
                 with self._stage(result, "sync_corporate_actions") as ctx:

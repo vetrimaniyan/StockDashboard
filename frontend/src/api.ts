@@ -207,12 +207,22 @@ export interface IndexValuation {
   median_pe_10y: number | null
   sessions_7y: number
   sessions_10y: number
+  /** Populated months behind each median. This is what the median is taken
+   *  over, so it, not the session count, is the measure of coverage. */
+  months_7y: number
+  months_10y: number
   pe_vs_7y_pct: number | null
   pe_vs_10y_pct: number | null
 }
 
 export interface IndexValuationResponse {
   indices: IndexValuation[]
+  /** Date of the ratios shown. These come from their own NSE file on their own
+   *  schedule, so they can lag the rest of the dataset independently. */
+  as_of: string | null
+  latest_session: string
+  is_stale: boolean
+  reason: string | null
   history_from: string | null
   history_to: string | null
   observations: number

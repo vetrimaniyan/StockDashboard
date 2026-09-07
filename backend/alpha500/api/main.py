@@ -139,6 +139,35 @@ def _expected_session(conn: Any, now: datetime | None = None) -> date:
     return cal.expected_session(conn, now)
 
 
+def valuation_freshness(conn: Any, now: datetime | None = None) -> dict[str, Any]:
+    """When the index ratios are from, and whether that is behind (FR-8.9).
+
+    Kept separate from :func:`_data_status`, which speaks for ``metrics_daily``.
+    These ratios come from their own NSE file on their own schedule, so they
+    lag independently — the dataset can be current while this panel is a week
+    old. A stale P/E is the dangerous kind of stale, because it does not look
+    stale: it looks like a market that has not moved.
+    """
+    row = conn.execute("SELECT max(trade_date) FROM index_valuation_daily").fetchone()
+    as_of = row[0] if row else None
+    expected = _expected_session(conn, now)
+    is_stale = bool(as_of and as_of < expected)
+    behind = (expected - as_of).days if as_of else None
+
+    return {
+        "as_of": as_of.isoformat() if as_of else None,
+        "latest_session": expected.isoformat(),
+        "is_stale": is_stale,
+        "reason": (
+            f"Index valuations are {behind} day(s) behind the last completed "
+            f"session ({expected.isoformat()}). The nightly run refreshes them; "
+            f"a longer gap needs `alpha500 indices`."
+            if is_stale
+            else None
+        ),
+    }
+
+
 def _data_status() -> DataStatus:
     """FR-8.9: the staleness indicator carries a reason, not just a date."""
     with analytical(read_only=True) as conn:
@@ -665,17 +694,25 @@ def get_index_valuation() -> dict[str, Any]:
             "SELECT min(trade_date), max(trade_date), count(*) "
             "FROM index_valuation_daily"
         ).fetchone()
+        freshness = valuation_freshness(conn)
 
     return {
         "indices": rows,
+        **freshness,
         "history_from": span[0].isoformat() if span and span[0] else None,
         "history_to": span[1].isoformat() if span and span[1] else None,
         "observations": int(span[2]) if span else 0,
-        # Stated so a median is never mistaken for a daily-sampled one.
+        # Stated so a median is never mistaken for a daily-sampled one. The
+        # cadence claim used to say "weekly" flatly; it is not, and the counts
+        # in each row show it, so the note describes the estimator instead of
+        # asserting a cadence the data does not keep.
         "note": (
-            "History is sampled weekly; the latest session is always exact. "
-            "A median needs data spanning at least 80% of its window, or it "
-            "is reported as unavailable rather than computed from a partial one."
+            "The latest session is always exact. History behind it is sampled, "
+            "and unevenly, so each median is taken over monthly medians rather "
+            "than raw readings — every month counts once, however many "
+            "readings back it. A median needs data spanning at least 80% of "
+            "its window, or it is reported as unavailable rather than computed "
+            "from a partial one."
         ),
     }
 

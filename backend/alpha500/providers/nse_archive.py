@@ -47,6 +47,40 @@ TIER_LIST_URLS: Final[dict[str, str]] = {
     "NIFTYSMALLCAP250": f"{NSE_ARCHIVES}/content/indices/ind_niftysmallcap250list.csv",
 }
 
+# FR-18.1: constituent list per tracked index. Verified live 2026-09-07 — all
+# 24 resolve, and every one carries the same header as the NIFTY 500 list, so
+# `list_instruments`' parser and its drift guard apply unchanged.
+#
+# Two slugs break the obvious pattern with an underscore before "list"; they
+# cost a request each to find and are not guessable. Nifty Capital Markets is
+# absent because no candidate slug resolved (B-10).
+INDEX_CONSTITUENT_SLUGS: Final[dict[str, str]] = {
+    "Nifty Bank": "ind_niftybanklist.csv",
+    "Nifty IT": "ind_niftyitlist.csv",
+    "Nifty Auto": "ind_niftyautolist.csv",
+    "Nifty Pharma": "ind_niftypharmalist.csv",
+    "Nifty FMCG": "ind_niftyfmcglist.csv",
+    "Nifty Metal": "ind_niftymetallist.csv",
+    "Nifty Realty": "ind_niftyrealtylist.csv",
+    "Nifty Media": "ind_niftymedialist.csv",
+    "Nifty PSU Bank": "ind_niftypsubanklist.csv",
+    "Nifty Private Bank": "ind_nifty_privatebanklist.csv",
+    "Nifty Financial Services": "ind_niftyfinancelist.csv",
+    "Nifty Healthcare Index": "ind_niftyhealthcarelist.csv",
+    "Nifty Consumer Durables": "ind_niftyconsumerdurableslist.csv",
+    "Nifty Oil & Gas": "ind_niftyoilgaslist.csv",
+    "Nifty Energy": "ind_niftyenergylist.csv",
+    "Nifty Infrastructure": "ind_niftyinfralist.csv",
+    "Nifty Commodities": "ind_niftycommoditieslist.csv",
+    "Nifty India Consumption": "ind_niftyconsumptionlist.csv",
+    "Nifty CPSE": "ind_cpselist.csv",
+    "Nifty PSE": "ind_niftypselist.csv",
+    "Nifty MNC": "ind_niftymnclist.csv",
+    "Nifty Services Sector": "ind_niftyservicelist.csv",
+    "Nifty India Defence": "ind_niftyindiadefence_list.csv",
+    "Nifty India Manufacturing": "ind_niftyindiamanufacturing_list.csv",
+}
+
 # Daily close file carrying P/E, P/B and dividend yield for every published
 # index. Verify the path at build time; NSE archive URLs are volatile (R-1).
 INDEX_CLOSE_URL: Final = f"{NSE_ARCHIVES}/content/indices/ind_close_all_{{ddmmyyyy}}.csv"
@@ -74,6 +108,13 @@ _UDIFF_COLUMNS: Final = frozenset(
 )
 _LEGACY_COLUMNS: Final = frozenset(
     {"SYMBOL", "SERIES", "OPEN", "HIGH", "LOW", "CLOSE", "TOTTRDQTY", "TOTTRDVAL", "TIMESTAMP"}
+)
+# Only the fields actually read below. The file carries open/high/low, points
+# change and turnover too, and NSE may reasonably add or reorder those without
+# it meaning anything to us — requiring the whole header would turn a harmless
+# addition into a nightly failure.
+_INDEX_CLOSE_COLUMNS: Final = frozenset(
+    {"Index Name", "Closing Index Value", "P/E", "P/B", "Div Yield"}
 )
 
 
@@ -319,6 +360,23 @@ class NseArchiveProvider(MarketDataProvider):
                     tiers[symbol] = tier
         return tiers
 
+    def get_index_constituents(self, index_name: str) -> list[str]:
+        """Trading symbols of one tracked index (FR-18.1).
+
+        The list carries no weight column — no NSE constituent file does — so
+        FR-18.9 derives weight from free-float market cap instead.
+        """
+        slug = INDEX_CONSTITUENT_SLUGS.get(index_name)
+        if slug is None:
+            raise ProviderError(f"no constituent list mapped for index {index_name}")
+        resp = self._session.get(f"{NSE_ARCHIVES}/content/indices/{slug}")
+        reader = csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")))
+        if reader.fieldnames is None:
+            raise SchemaDriftError(f"{index_name} constituents: empty response")
+        _require_columns(reader.fieldnames, _NIFTY500_COLUMNS, f"{index_name} constituents")
+        out = [(r.get("Symbol") or "").strip().upper() for r in reader]
+        return [s for s in out if s]
+
     def get_index_valuations(self, on: date) -> list[dict[str, Any]]:
         """P/E, P/B and dividend yield for every index on one session.
 
@@ -332,34 +390,65 @@ class NseArchiveProvider(MarketDataProvider):
         except ProviderError:
             return []
 
+        # utf-8-sig, as the constituent lists use: the first column is the one
+        # read below, so a byte-order mark would attach to "Index Name" itself
+        # and every row would parse as nameless.
+        reader = csv.DictReader(io.StringIO(resp.content.decode("utf-8-sig")))
+        if reader.fieldnames is None:
+            raise SchemaDriftError(f"index close {on}: empty response")
+        # A rename here is invisible without this. index_name keeps parsing, so
+        # rows still insert and the stage still reports a non-zero row count,
+        # while every ratio silently becomes NULL and the medians built on them
+        # quietly thin out. That is the failure this module exists to refuse.
+        _require_columns(reader.fieldnames, _INDEX_CLOSE_COLUMNS, f"index close {on}")
+
         out: list[dict[str, Any]] = []
-        for row in csv.DictReader(io.StringIO(resp.text)):
+        for row in reader:
             name = (row.get("Index Name") or "").strip()
             if not name:
                 continue
             out.append(
                 {
                     "index_name": name,
-                    "close": _to_float(row.get("Closing Index Value")),
-                    "pe": _to_float(row.get("P/E")),
-                    "pb": _to_float(row.get("P/B")),
-                    "div_yield": _to_float(row.get("Div Yield")),
+                    # A level or a valuation multiple at or below zero is not a
+                    # number to compare against, but a dividend yield of zero
+                    # is a real reading: it means no constituent paid out.
+                    "close": _positive(_to_float(row.get("Closing Index Value"))),
+                    "pe": _positive(_to_float(row.get("P/E"))),
+                    "pb": _positive(_to_float(row.get("P/B"))),
+                    "div_yield": _non_negative(_to_float(row.get("Div Yield"))),
                 }
             )
         return out
 
 
 def _to_float(text: Any) -> float | None:
-    """NSE writes '-' for an index with no meaningful ratio."""
+    """Parse one cell. NSE writes '-' for an index with no meaningful ratio.
+
+    Deliberately does no sign filtering: which values are meaningful depends on
+    the field, and folding that in here once applied the P/E rule to dividend
+    yield too, turning a genuine zero payout into a missing reading.
+    """
     if text is None:
         return None
     cleaned = str(text).strip().replace(",", "")
     if not cleaned or cleaned in {"-", "NA", "N.A."}:
         return None
     try:
-        value = float(cleaned)
+        return float(cleaned)
     except ValueError:
         return None
-    # A zero or negative P/E is an aggregate of loss-making constituents and is
-    # not a valuation; store it as absent rather than as a number to median.
-    return value if value > 0 else None
+
+
+def _positive(value: float | None) -> float | None:
+    """For levels and valuation multiples.
+
+    A zero or negative P/E is an aggregate of loss-making constituents and is
+    not a valuation; store it as absent rather than as a number to median.
+    """
+    return value if value is not None and value > 0 else None
+
+
+def _non_negative(value: float | None) -> float | None:
+    """For dividend yield, where zero is a reading and not an absence."""
+    return value if value is not None and value >= 0 else None

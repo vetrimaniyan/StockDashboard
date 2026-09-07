@@ -290,14 +290,18 @@ def cmd_indices(args: argparse.Namespace) -> int:
     started = time.monotonic()
     with analytical() as conn:
         print("Size tiers...")
-        tagged = sync_index_tiers(conn, provider)
+        tagged, unmatched = sync_index_tiers(conn, provider)
         print(f"  {tagged} constituents tagged")
+        if unmatched:
+            print(f"  {unmatched} listed symbol(s) matched no instrument; "
+                  f"the tier lists and the universe disagree")
 
         end = date.today()
         start = _parse_date(args.start) or end - timedelta(days=365 * args.years)
         print(f"Index valuations {start} to {end}...")
         written, empty = sync_index_valuations(
-            conn, provider, start, end, every=args.every, progress=_progress
+            conn, provider, start, end, every=args.every, progress=_progress,
+            force=args.force,
         )
         print(f"  {written:,} rows written, {empty} sessions with no file")
 
@@ -310,6 +314,64 @@ def cmd_indices(args: argparse.Namespace) -> int:
                   f"10y median {m10:>6}")
     print(f"\nFinished in {time.monotonic() - started:.0f}s")
     return 0
+
+
+def cmd_index_series(args: argparse.Namespace) -> int:
+    """FR-18.2 — daily series for the tracked sectoral and thematic indices."""
+    from alpha500.pipeline.index_series import index_coverage, sync_index_series
+    from alpha500.pipeline.index_universe import TRACKED
+
+    init_databases()
+    end = date.today()
+    start = _parse_date(args.start) or end - timedelta(days=365 * args.years)
+
+    started = time.monotonic()
+    with analytical() as conn:
+        print(f"Index series {start} to {end} for {len(TRACKED)} indices...")
+        results = sync_index_series(
+            conn, YahooProvider(), start, end, progress=_progress
+        )
+        coverage = index_coverage(conn)
+
+    failed = [r for r in results if not r.ok]
+    print(f"\n{'index':<28}{'basis':>7}{'sessions':>10}{'density':>9}  first        peak")
+    print("-" * 78)
+    for row in coverage:
+        first = row["first_session"].isoformat() if row["first_session"] else "—"
+        dens = f"{row['density'] * 100:.0f}%" if row["density"] is not None else "—"
+        print(f"{row['index_name']:<28}{str(row['ohlc_basis'] or '—'):>7}"
+              f"{row['sessions']:>10}{dens:>9}  {first:<12} {row['peak_metric']}")
+    print("-" * 78)
+
+    close_only = [r for r in coverage if r["ohlc_basis"] == "CLOSE"]
+    print(f"{len(coverage) - len(close_only)} index series with real OHLC, "
+          f"{len(close_only)} close-only.")
+    # Stated every run, not buried in a doc: the naming rule is the whole point
+    # of recording first_session, and a silent "period" column invites someone
+    # to read it as an all-time high anyway.
+    if all(r["peak_metric"] == "period" for r in coverage):
+        print("No index reaches a documented inception, so every peak is a "
+              "period high. Set documented_inception in index_universe.py, with "
+              "a citation, to change that.")
+    sparse = [r for r in coverage if not r["daily"] and r["sessions"]]
+    if sparse:
+        # Said loudly, because the row count on its own looks like a series
+        # and is not one. A 252-session window over a 1-in-70 sample spans
+        # decades, and would answer rather than fail.
+        print(f"\n{len(sparse)} series are NOT daily and cannot support a "
+              f"52-week window or an SMA200:")
+        for r in sparse:
+            print(f"  {r['index_name']:<28} {r['sessions']:>5} sessions "
+                  f"({r['density'] * 100:.0f}% of its span)")
+        print("  These inherit index_valuation_daily's sampling. Densify with "
+              "`alpha500 indices --every 1 --force` before building "
+              "FR-18.3/18.4 on them.")
+    if failed:
+        print(f"\n{len(failed)} failed:")
+        for r in failed:
+            print(f"  {r.index_name}: {r.error}")
+    print(f"\nFinished in {time.monotonic() - started:.0f}s")
+    return 1 if failed else 0
 
 
 def cmd_reconcile(_args: argparse.Namespace) -> int:
@@ -473,6 +535,18 @@ def main(argv: list[str] | None = None) -> int:
         "--every", type=int, default=5,
         help="sample every Nth session (5 = weekly); 1 fetches every session",
     )
+    p_idx.add_argument(
+        "--force", action="store_true",
+        help="refetch sessions already stored, instead of skipping them; the "
+             "only way to repair a session that was stored partially or with "
+             "null ratios (one request per sampled session, so it is slow)",
+    )
+
+    p_iseries = sub.add_parser(
+        "index-series", help="ingest daily series for the tracked sector indices"
+    )
+    p_iseries.add_argument("--years", type=int, default=20)
+    p_iseries.add_argument("--from", dest="start", default=None, metavar="YYYY-MM-DD")
 
     sub.add_parser("token", help="mint an API token for a reviewer")
 
@@ -503,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
         "pipeline": cmd_pipeline, "rebuild": cmd_rebuild,
         "materialise": cmd_materialise, "backtest": cmd_backtest,
         "marketcap": cmd_marketcap, "indices": cmd_indices,
+        "index-series": cmd_index_series,
         "reconcile": cmd_reconcile, "backup": cmd_backup, "token": cmd_token, "serve": cmd_serve,
     }
     return handlers[args.command](args)
