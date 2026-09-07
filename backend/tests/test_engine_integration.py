@@ -495,3 +495,91 @@ def test_a_clean_gate_says_so_without_a_trailing_dash():
     assert _gate(
         CheckResult("V5", "Daily move", Severity.WARN, True)
     ).summary() == "all checks passed on 2026-09-07"
+
+
+# --- an unadjusted price break (B-2) -------------------------------------
+
+
+def _quarantine_v5(conn, symbol: str, on: date, detail: str) -> None:
+    token = conn.execute(
+        "SELECT instrument_token FROM instruments WHERE tradingsymbol = ?", [symbol]
+    ).fetchone()[0]
+    conn.execute(
+        "INSERT OR REPLACE INTO quarantined_rows VALUES (?,?,?,?,now())",
+        [token, on, "V5", detail],
+    )
+
+
+def test_a_quarantined_break_holds_the_symbol_out_of_screens(conn, universe):
+    """The HEG case. A demerger drops the price with nothing in the corporate
+    action feed, and V5 quarantines the row - but a quarantine was only ever a
+    record, so ret_1w, ret_12m and rs_rating kept consuming the break and the
+    symbol read as a catastrophic decliner at the top of the exit screen.
+
+    Nothing here adjusts the price: the ratio is not in any feed we have. The
+    symbol is held out with the reason attached instead, which is what FR-1.5
+    already does for every other exclusion.
+    """
+    as_of = conn.execute("SELECT max(trade_date) FROM ohlcv_daily").fetchone()[0]
+    symbol = conn.execute(
+        "SELECT tradingsymbol FROM instruments ORDER BY tradingsymbol LIMIT 1"
+    ).fetchone()[0]
+
+    compute_metrics_for_date(conn, as_of)
+    before = conn.execute(
+        "SELECT is_eligible FROM metrics_daily m JOIN instruments i USING "
+        "(instrument_token) WHERE i.tradingsymbol = ? AND m.trade_date = ?",
+        [symbol, as_of],
+    ).fetchone()[0]
+    assert before is True, "fixture symbol must start eligible, or this proves nothing"
+
+    _quarantine_v5(conn, symbol, as_of, "daily return -62.62% with no corporate action")
+    compute_metrics_for_date(conn, as_of)
+
+    eligible, reason = conn.execute(
+        "SELECT is_eligible, ineligible_reason FROM metrics_daily m "
+        "JOIN instruments i USING (instrument_token) "
+        "WHERE i.tradingsymbol = ? AND m.trade_date = ?",
+        [symbol, as_of],
+    ).fetchone()
+
+    assert eligible is False
+    assert "unadjusted price break" in reason
+    assert "-62.62%" in reason
+    assert "session(s)" in reason, "the reason must say how long it lasts"
+
+
+def test_a_break_older_than_the_longest_window_no_longer_holds_the_symbol(conn, universe):
+    """It heals itself. Once the break is more than 252 sessions back, no stored
+    metric spans it and there is nothing left to warn about."""
+    as_of = conn.execute("SELECT max(trade_date) FROM ohlcv_daily").fetchone()[0]
+    symbol = conn.execute(
+        "SELECT tradingsymbol FROM instruments ORDER BY tradingsymbol LIMIT 1"
+    ).fetchone()[0]
+    oldest = conn.execute("SELECT min(trade_date) FROM ohlcv_daily").fetchone()[0]
+
+    _quarantine_v5(conn, symbol, oldest, "daily return -40.00% with no corporate action")
+    compute_metrics_for_date(conn, as_of)
+
+    eligible = conn.execute(
+        "SELECT is_eligible FROM metrics_daily m JOIN instruments i USING "
+        "(instrument_token) WHERE i.tradingsymbol = ? AND m.trade_date = ?",
+        [symbol, as_of],
+    ).fetchone()[0]
+
+    sessions = conn.execute("SELECT count(DISTINCT trade_date) FROM ohlcv_daily").fetchone()[0]
+    if sessions > 252:
+        assert eligible is True, "a break outside every window must not hold a symbol"
+
+
+def test_a_symbol_with_no_break_is_untouched(conn, universe):
+    as_of = conn.execute("SELECT max(trade_date) FROM ohlcv_daily").fetchone()[0]
+    compute_metrics_for_date(conn, as_of)
+
+    reasons = conn.execute(
+        "SELECT count(*) FROM metrics_daily WHERE trade_date = ? "
+        "AND ineligible_reason LIKE '%unadjusted price break%'",
+        [as_of],
+    ).fetchone()[0]
+
+    assert reasons == 0

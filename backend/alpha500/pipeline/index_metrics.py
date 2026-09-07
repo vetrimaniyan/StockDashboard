@@ -184,13 +184,13 @@ def compute_index_metrics(
         # The gate that matters. A sampled series answers every formula below
         # and every answer is wrong by a factor nobody can see in the number.
         if not cover.get("daily"):
-            density = cover.get("density")
-            shown = f"{density * 100:.0f}%" if density is not None else "unknown"
+            days = cover.get("window_days")
+            months = f"{days / 30.4:.0f} months" if days else "an unknown span"
             metrics.available = False
             metrics.reason = (
-                f"Series is sampled, not daily ({shown} of its span, "
-                f"{metrics.sessions} sessions), so a 52-week window and a 200 SMA "
-                f"would span years rather than the periods they name."
+                f"The last {min(metrics.sessions, 252)} stored sessions span "
+                f"{months}, so a 52-week window and a 200 SMA would measure "
+                f"periods far longer than the ones they name."
             )
             out.append(metrics)
             continue

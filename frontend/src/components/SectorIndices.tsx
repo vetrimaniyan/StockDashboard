@@ -143,7 +143,10 @@ export function SectorIndices() {
                 <td className="py-1.5 font-medium">
                   {row.index_name}
                   {row.ohlc_basis === 'CLOSE' && (
-                    <span className="ml-1 text-[var(--muted)]" title="range measured on closing values; no intraday high or low available">
+                    <span
+                      className="ml-1 text-[var(--muted)]"
+                      title="Range and peak measured on closing values; no intraday high or low is available for this index. Its peak is the highest close actually observed, so a stretch of history sampled rather than recorded daily can sit above it unseen."
+                    >
                       (close)
                     </span>
                   )}
