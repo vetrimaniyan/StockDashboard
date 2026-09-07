@@ -215,22 +215,17 @@ def test_a_series_too_short_for_a_200_sma_has_no_trend_state(conn):
 def test_a_sampled_series_is_reported_unavailable_rather_than_computed(conn):
     """The six close-only indices. Every formula above would answer over a 5%
     sample, and every answer would span years while looking like a year."""
-    days = _sessions(400)
-    bars = [(d, 100.0, 98.0, 99.0) for d in days]
-    _store(conn, BANK.name, bars, basis="CLOSE")
-    # Rewrite the calendar so the series covers a fraction of its own span.
-    conn.execute("DELETE FROM trading_calendar")
-    span = [days[0] + timedelta(days=i) for i in range((days[-1] - days[0]).days + 1)]
-    conn.executemany(
-        "INSERT OR REPLACE INTO trading_calendar VALUES (?, TRUE, NULL)",
-        [(d,) for d in span],
-    )
+    # One reading a week over six years: 300 rows, and the last 252 of them
+    # occupy nearly five years rather than one.
+    end = date(2026, 9, 4)
+    weekly = [end - timedelta(days=7 * i) for i in range(300)][::-1]
+    _store(conn, BANK.name, [(d, 100.0, 98.0, 99.0) for d in weekly], basis="CLOSE")
 
     m = compute_index_metrics(conn, [BANK])[0]
 
     assert m.available is False
     assert m.high_52w is None and m.trend_state is None
-    assert "sampled, not daily" in m.reason
+    assert "span" in m.reason and "months" in m.reason
 
 
 def test_an_index_with_no_series_says_so(conn):

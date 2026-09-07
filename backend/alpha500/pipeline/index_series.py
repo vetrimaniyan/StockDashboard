@@ -202,6 +202,51 @@ def _expected_sessions(
     return weekdays
 
 
+# The longest lookback any FR-18.3/18.4 metric uses. Density is judged over
+# this many sessions back from the latest bar, because that is the only stretch
+# the metrics read.
+METRIC_WINDOW = 252
+
+
+# How much calendar time the metric window may occupy before it stops being the
+# period its name claims. 252 sessions ought to fill about 365 days; 15 months
+# allows for vendor gaps and holiday clusters without letting a "52-week high"
+# quietly reach back years.
+MAX_WINDOW_DAYS = 460
+
+
+def _window_span(
+    conn: duckdb.DuckDBPyConnection, index_name: str, last: date | None
+) -> tuple[int | None, float | None]:
+    """(days the metric window spans, sessions stored over sessions expected).
+
+    The span is the gate; the ratio is reported alongside because it is what
+    makes an odd span legible - a window stretched by missing sessions looks
+    different from one stretched by a series that simply starts later.
+    """
+    if last is None:
+        return None, None
+    row = conn.execute(
+        "SELECT min(trade_date) FROM ("
+        "  SELECT trade_date FROM index_ohlcv_daily WHERE index_name = ? "
+        "  ORDER BY trade_date DESC LIMIT ?"
+        ")",
+        [index_name, METRIC_WINDOW],
+    ).fetchone()
+    window_start = row[0] if row else None
+    if window_start is None:
+        return None, None
+
+    stored = conn.execute(
+        "SELECT count(*) FROM index_ohlcv_daily WHERE index_name = ? "
+        "AND trade_date BETWEEN ? AND ?",
+        [index_name, window_start, last],
+    ).fetchone()[0]
+    expected = _expected_sessions(conn, window_start, last)
+    ratio = min(int(stored) / expected, 1.0) if expected else None
+    return (last - window_start).days, ratio
+
+
 def index_coverage(
     conn: duckdb.DuckDBPyConnection,
     indices: Sequence[TrackedIndex] = TRACKED,
@@ -230,23 +275,21 @@ def index_coverage(
             and index.documented_inception is not None
             and first <= index.documented_inception
         )
-        # Stored sessions against trading days in the span. The close-only
-        # fallback inherits index_valuation_daily's sampling, which is weekly
-        # at best and monthly for most of the recent window, so those series
-        # hold a fraction of the sessions their date range implies. FR-18.3's
-        # 252-session window and FR-18.4's SMA200 both assume daily bars; run
-        # against a 1.3%-dense series they would silently span years. Reported
-        # so the next requirement can gate on it instead of discovering it.
-        span_sessions = _expected_sessions(conn, first, row[2] if row else None)
-        density = (
-            (int(row[3]) / span_sessions) if row and row[3] and span_sessions else None
-        )
+        # Density over the window the metrics actually use, not over the whole
+        # history. FR-18.3 looks back 252 sessions and FR-18.4 back 221; an
+        # index sampled monthly until 2023 and daily since can answer both, and
+        # measuring its whole span would refuse it for a sparseness that sits
+        # entirely outside every window. What must be daily is the recent part.
+        last = row[2] if row else None
+        window_days, density = _window_span(conn, index.name, last)
         out.append({
             "index_name": index.name,
             "category": index.category,
             "first_session": first,
             "density": density,
-            "daily": bool(density is not None and density >= 0.9),
+            "window_days": window_days,
+            # The gate: does the 252-session window occupy about 52 weeks?
+            "daily": bool(window_days is not None and window_days <= MAX_WINDOW_DAYS),
             "last_session": row[2] if row else None,
             "sessions": int(row[3]) if row and row[3] is not None else 0,
             "ohlc_basis": row[4] if row else None,

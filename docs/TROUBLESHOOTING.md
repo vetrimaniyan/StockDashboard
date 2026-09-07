@@ -205,6 +205,48 @@ by another command — as `float_shares` is owned by `marketcap` and
 overwrite them with nulls. This path has no test coverage, which is why the
 original regression shipped.
 
+### `FATAL Error: Failed to delete all rows from index`
+
+Seen 2026-09-07 on `compute_metrics`:
+
+```
+_duckdb.FatalException: FATAL Error: Invalid Input Error:
+Failed to delete all rows from index. Only deleted 47 out of 500 rows.
+```
+
+`_write_metrics` clears the day before rewriting it, and that `DELETE` failed
+against `idx_metrics_date_rank`, the secondary index on
+`metrics_daily (trade_date, momentum_rank)`. The table itself was sound — 500
+rows for the date, 500 distinct tokens, no duplicate `(token, date)` pairs —
+so the inconsistency was in the index, not the data.
+
+**It stops the nightly run.** `compute_metrics` performs exactly this delete,
+so once it appears every subsequent pipeline run fails at that stage until the
+index is rebuilt. The error is FATAL in DuckDB's sense: it invalidates the
+connection, so the process must be restarted afterwards.
+
+The index is derived and rebuildable, so the repair is local. With the API
+stopped, so nothing else holds the store:
+
+```python
+import duckdb
+c = duckdb.connect(r"C:\StockDashboard\data\alpha500.duckdb")
+c.execute("DROP INDEX IF EXISTS idx_metrics_date_rank")
+c.execute(
+    "CREATE INDEX idx_metrics_date_rank "
+    "ON metrics_daily (trade_date, momentum_rank)"
+)
+c.execute("CHECKPOINT")
+c.close()
+```
+
+Then re-run the metrics for the affected date. Nothing is lost: the failed
+transaction rolls back, and the row counts are unchanged by the repair.
+
+Take a copy of the `.duckdb` file before the repair. It is a single file and
+the copy is the whole backup — `backup_app_db` covers `app.sqlite` only, so
+the analytical store has no nightly snapshot behind it.
+
 ### Stale banner on a non-trading day
 
 Not a fault. `is_trading_day` gates the run; weekends and NSE holidays are

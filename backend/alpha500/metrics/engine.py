@@ -135,6 +135,62 @@ def _load_prices(
     return out
 
 
+# The longest window any stored metric looks back over (ret_12m, and the
+# 52-week block). While an unadjusted break sits inside it, those metrics are
+# measuring two different securities either side of the break.
+_LONGEST_WINDOW = p.YEAR
+
+
+def _discontinuities(
+    conn: duckdb.DuckDBPyConnection, as_of: date
+) -> dict[str, str]:
+    """Symbols whose series has an unexplained price break inside the longest
+    metric window, and why.
+
+    V5 quarantines a move above 35% with no corporate action behind it, but a
+    quarantine has only ever been a record: the row stays in ``ohlcv_daily``
+    and every window metric keeps consuming it. HEG demerged on 2026-09-07 and
+    read as ret_1w -62.7%, ret_12m -45.2% and rs_rating 1 - a catastrophic
+    decliner at the top of the exit screen, entirely an artefact.
+
+    Nothing here adjusts the prices. The demerger ratio is not in any feed we
+    have (B-2), and inventing a factor would replace a visible break with an
+    invisible one. Instead the symbol is held out of screen results with the
+    reason attached, which is what FR-1.5 already does for every other
+    exclusion, and it heals itself as the break ages out of the window.
+    """
+    rows = conn.execute(
+        """
+        SELECT i.tradingsymbol, q.trade_date, q.detail,
+               (SELECT count(*) FROM ohlcv_daily o
+                 WHERE o.instrument_token = q.instrument_token
+                   AND o.trade_date > q.trade_date AND o.trade_date <= ?) AS since
+          FROM quarantined_rows q
+          JOIN instruments i USING (instrument_token)
+         WHERE q.check_id = 'V5' AND q.trade_date <= ?
+        """,
+        [as_of, as_of],
+    ).fetchall()
+
+    latest: dict[str, date] = {}
+    out: dict[str, str] = {}
+    for symbol, break_date, detail, since in rows:
+        remaining = _LONGEST_WINDOW - int(since or 0)
+        if remaining <= 0:
+            continue
+        # A symbol can carry more than one break; the most recent is the one
+        # that governs how long the metrics stay incomparable.
+        name = str(symbol)
+        if name in latest and break_date <= latest[name]:
+            continue
+        latest[name] = break_date
+        out[name] = (
+            f"unadjusted price break on {break_date} ({detail}); return and "
+            f"52-week metrics span it for {remaining} more session(s)"
+        )
+    return out
+
+
 def _index_returns(
     conn: duckdb.DuckDBPyConnection, index_name: str, as_of: date
 ) -> dict[int, float | None]:
@@ -218,7 +274,10 @@ def compute_metrics_for_date(
         return 0
 
     arrays = {name: np.array(values, dtype=object) for name, values in latest.items()}
-    _finalise_cross_section(arrays, kept_symbols, kept_series, idx_returns, excluded_symbols)
+    _finalise_cross_section(
+        arrays, kept_symbols, kept_series, idx_returns, excluded_symbols,
+        _discontinuities(conn, as_of),
+    )
 
     return _write_metrics(conn, as_of, kept_tokens, arrays)
 
@@ -241,6 +300,7 @@ def _finalise_cross_section(
     series_codes: list[str],
     idx_returns: dict[int, float | None],
     excluded_symbols: set[str] | None,
+    discontinuous: dict[str, str] | None = None,
 ) -> None:
     history_days = _as_float(arrays["history_days"])
     turnover = _as_float(arrays["turnover_20d_median"])
@@ -252,6 +312,22 @@ def _finalise_cross_section(
         excluded_symbols=excluded_symbols,
         symbols=symbols,
     )
+    # A quarantined price break makes every window metric that spans it a
+    # comparison between two different securities. The values are left as
+    # computed - overwriting seventy columns invites its own errors - but the
+    # symbol is held out of screens and says why, so nothing acts on them.
+    breaks = discontinuous or {}
+    if breaks:
+        eligible = list(eligible)
+        reasons = list(reasons)
+        for i, symbol in enumerate(symbols):
+            note = breaks.get(symbol)
+            if note and eligible[i]:
+                eligible[i] = False
+                reasons[i] = note
+            elif note and not reasons[i]:
+                reasons[i] = note
+
     arrays["is_eligible"] = np.array(eligible, dtype=object)
     # FR-1.5: a symbol held out of screen results must be explainable, not
     # merely absent. The reason is computed here anyway; storing it is what

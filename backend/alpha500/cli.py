@@ -361,8 +361,9 @@ def cmd_index_series(args: argparse.Namespace) -> int:
         print(f"\n{len(sparse)} series are NOT daily and cannot support a "
               f"52-week window or an SMA200:")
         for r in sparse:
-            print(f"  {r['index_name']:<28} {r['sessions']:>5} sessions "
-                  f"({r['density'] * 100:.0f}% of its span)")
+            span = f"{r['window_days'] / 30.4:.0f} months" if r['window_days'] else "?"
+            print(f"  {r['index_name']:<28} {r['sessions']:>5} sessions; "
+                  f"its last 252 span {span}")
         print("  These inherit index_valuation_daily's sampling. Densify with "
               "`alpha500 indices --every 1 --force` before building "
               "FR-18.3/18.4 on them.")

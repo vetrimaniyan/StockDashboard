@@ -246,17 +246,40 @@ def test_a_daily_series_is_reported_as_daily(conn):
     assert row["density"] > 0.95
 
 
+def test_ordinary_vendor_gaps_do_not_disqualify_a_daily_series(conn):
+    """The regression this replaced a percentage gate to avoid. Yahoo's index
+    series are missing the odd session, which read as 87% dense and got the
+    same treatment as a 5% sample - a window spanning fourteen months treated
+    like one spanning twenty years.
+    """
+    bank = TrackedIndex("Nifty Bank", "SECTORAL")
+    first = END - timedelta(days=430)
+    _mark_trading_days(conn, first, END)
+    sync_index_series(conn, _FakeYahoo(), first, END, indices=[bank])
+    # Punch out one session in eight, as a vendor feed does.
+    conn.execute(
+        "DELETE FROM index_ohlcv_daily WHERE index_name = 'Nifty Bank' "
+        "AND (epoch(trade_date)::BIGINT / 86400) % 8 = 0"
+    )
+    sync_index_series(conn, _FakeYahoo(fail_for="Nifty Bank"), first, END, indices=[bank])
+
+    row = index_coverage(conn, [bank])[0]
+    assert row["density"] < 0.95, "the gaps are real and still reported"
+    assert row["daily"] is True, "but the window still spans about a year"
+
+
 def test_a_sampled_series_is_not_reported_as_daily(conn):
     """The close-only fallback inherits index_valuation_daily's sampling, which
-    is weekly at best. FR-18.3's 252-session window and FR-18.4's SMA200 both
-    assume daily bars; over a sparse series they would answer rather than fail,
-    and the answer would span years. So density is measured, not assumed.
+    is weekly at best. What breaks is not the row count but the span: 252
+    weekly readings occupy five years, so a "52-week" window built on them
+    reaches back five. It has to fail rather than answer.
     """
     defence = TrackedIndex("Nifty India Defence", "THEMATIC")
-    _mark_trading_days(conn, START, END)
-    # One reading a week, as the real valuation history holds.
+    first = END - timedelta(days=365 * 6)
+    _mark_trading_days(conn, first, END)
+    # One reading a week over six years, as the real valuation history holds.
     stamp = datetime.now(timezone.utc)
-    rows, day = [], START
+    rows, day = [], first
     while day <= END:
         rows.append((defence.name, day, 500.0, 20.0, 3.0, 1.1, stamp))
         day += timedelta(days=7)
@@ -264,12 +287,12 @@ def test_a_sampled_series_is_not_reported_as_daily(conn):
         "INSERT OR REPLACE INTO index_valuation_daily VALUES (?,?,?,?,?,?,?)", rows
     )
 
-    sync_index_series(conn, _FakeYahoo(), START, END, indices=[defence])
+    sync_index_series(conn, _FakeYahoo(), first, END, indices=[defence])
     row = index_coverage(conn, [defence])[0]
 
-    assert row["sessions"] > 0, "the series exists"
-    assert row["daily"] is False, "but it is not daily, and must not read as one"
-    assert row["density"] < 0.4
+    assert row["sessions"] > 252, "the series exists and is long enough to try"
+    assert row["window_days"] > 1000, "its last 252 sessions span years"
+    assert row["daily"] is False, "so it must not read as a daily series"
 
 
 def test_density_is_none_before_anything_is_ingested(conn):
