@@ -49,12 +49,23 @@ class GateResult:
     def failures(self) -> list[CheckResult]:
         return [r for r in self.results if not r.passed]
 
+    def _named(self) -> str:
+        """The failing checks, identified. `CheckResult` objects live only for
+        the length of the run; this string is what `job_runs` keeps, so a check
+        id omitted here is a warning nobody can look up afterwards."""
+        return "; ".join(
+            f"{r.check_id} {r.name}" + (f" ({r.detail})" if r.detail else "")
+            for r in self.failures
+        )
+
     def summary(self) -> str:
         failed = len(self.failures)
         if self.blocked:
-            return f"BLOCKED on {self.trade_date}: {failed} check(s) failed"
+            return f"BLOCKED on {self.trade_date}: {failed} check(s) failed - {self._named()}"
         if failed:
-            return f"passed with {failed} warning(s) on {self.trade_date}"
+            return (
+                f"passed with {failed} warning(s) on {self.trade_date} - {self._named()}"
+            )
         return f"all checks passed on {self.trade_date}"
 
 
