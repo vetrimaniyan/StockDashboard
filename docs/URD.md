@@ -441,7 +441,11 @@ which FR-18.2 reads.
 list; no strategy or factor index appears; at least one thematic carries an
 `OVERLAPS` flag.
 
-*Status:* Proposed
+*Status:* **Built** (`test_the_tracked_universe_is_the_size_fr_18_1_specifies`,
+`test_no_strategy_or_factor_index_is_tracked`,
+`test_every_tracked_index_has_a_constituent_list_mapped`) — except the
+`OVERLAPS` flag, which needs the weights FR-18.9 derives and is not yet
+computed.
 
 **FR-18.2 — Index history, to the depth actually obtainable.** A daily series
 per tracked index, each with its actual `first_session` recorded, extending the
@@ -473,7 +477,12 @@ view, export or registry entry uses "all-time" for an index whose
 `first_session` postdates its documented inception; a simulated index feed
 failure produces a Warn and leaves the stock pipeline Built and current.
 
-*Status:* Proposed
+*Status:* **Built** (`test_an_index_without_a_ticker_falls_back_to_close_and_stores_no_high`,
+`test_a_series_short_of_inception_reports_a_period_high_not_an_ath`,
+`test_one_vendor_failure_leaves_the_other_series_intact`,
+`test_no_metric_is_ever_named_all_time`). Backfilled live 2026-09-07: 18 series
+with real OHLC, 6 close-only. Ingestion is a manual `alpha500 index-series`
+command, not yet a nightly pipeline stage.
 
 **FR-18.3 — Range and drawdown.** Per index and session: `high_52w`, `low_52w`,
 `range_position_52w`, `pct_from_52w_high`, `peak_value`, `peak_date`,
@@ -490,7 +499,9 @@ close `46,000`: `range_position_52w = 0.500`, `pct_from_52w_high = -11.54%`,
 `pct_from_peak = -16.36%`. Named test
 `test_index_range_and_drawdown_worked_example`.
 
-*Status:* Proposed
+*Status:* **Built** (`test_index_range_and_drawdown_worked_example`). Fields are
+named `period_high` / `pct_from_period_high`, per FR-18.2 — no index reaches a
+documented inception, so `ath_*` is not in use.
 
 **FR-18.4 — Trend state, in three values not two.** `UPTREND` requires close >
 SMA200, SMA50 > SMA200 and SMA200 rising over 21 sessions; `DOWNTREND` the
@@ -504,7 +515,12 @@ over 21 sessions classifies `TRANSITIONAL`. On any live session the three states
 sum to the tracked index count with no nulls. Named test
 `test_trend_state_returns_transitional_when_neither_definition_holds`.
 
-*Status:* Proposed
+*Status:* **Built**
+(`test_trend_state_returns_transitional_when_neither_definition_holds`,
+`test_sessions_in_state_counts_only_the_current_run`). Live on 2026-09-07:
+5 UPTREND, 9 TRANSITIONAL, 4 DOWNTREND, summing to the 18 measurable indices.
+The nine transitional are the point — a binary would have labelled each of
+them.
 
 **FR-18.5 — Sector breadth.** Share of members above their 50 and 200 SMA,
 within 2% of a 52-week high, and at `trend_template_score >= 6`, plus
@@ -616,7 +632,16 @@ constituents only; `UPTREND` sorts above `TRANSITIONAL` above `DOWNTREND`; a
 full-text search of the bundle, registry and manual returns zero occurrences of
 "forecast", "projected" or "predicted" applied to a sector.
 
-*Status:* Proposed
+*Status:* **Partly built.** The range-bar view exists on the dashboard with the
+track stretched to `max(high_52w, period_high)`, trend carried by glyph and
+label as well as colour, and the six unmeasurable indices named with their
+reason rather than dropped. Live figure recorded on first run: on 2026-09-07,
+5 indices are UPTREND, 9 TRANSITIONAL and 4 DOWNTREND, of 18 measurable.
+
+Not built: the sort is trend state then position in the 52-week range, because
+FR-18.8's momentum score does not exist yet; and the one-click hand-off applying
+a sector as a filter to the screens is absent, which is the part that makes this
+a tool rather than a wall-chart. Both stay Proposed.
 ---
 
 ## 7. Non-functional status
@@ -694,5 +719,6 @@ already inside budget was rejected; see D-10.
 | 2026-08-31 | Fibonacci retracement zone: 26 metrics and the ninth screen | FR-17.1-17.10 |
 | 2026-09-07 | Sector/thematic index dashboard: range and drawdown, three-state trend, breadth, rotation metrics | FR-18.1–18.11 |
 | 2026-09-07 | B-10 resolved: index history sourced (Yahoo OHLC for 18, close-only for the rest), weights derived, `ath_*` naming withdrawn | FR-18.1, FR-18.2, FR-18.5, FR-18.9 |
+| 2026-09-07 | Sector index universe, series ingestion, range and drawdown, three-state trend, and the first view | FR-18.1–18.4, FR-18.10 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->

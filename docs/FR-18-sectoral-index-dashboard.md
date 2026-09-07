@@ -470,9 +470,9 @@ tool.
 *Acceptance:* an index whose peak exceeds its 52-week high renders with the peak
 marker inside the drawn track; the sector hand-off applies a sector filter to
 Momentum Leaders and returns only constituents of that sector; the view sorts
-`UPTREND` rows above `TRANSITIONAL` above `DOWNTREND`. Live figure to be
-recorded on first run: on ____-__-__, ___ indices are UPTREND, ___
-TRANSITIONAL, ___ DOWNTREND.
+`UPTREND` rows above `TRANSITIONAL` above `DOWNTREND`. Live figure recorded on
+first run: on 2026-09-07, 5 indices are UPTREND, 9 TRANSITIONAL and 4 DOWNTREND,
+of the 18 measurable.
 
 *Status:* Proposed
 
