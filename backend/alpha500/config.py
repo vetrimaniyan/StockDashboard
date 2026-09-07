@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     #   ALPHA500_BACKUP_DIR=C:/Users/you/OneDrive/alpha500-backups
     backup_dir: Path = REPO_ROOT / "data" / "backups"
     backup_keep: int = 30  # snapshots retained; unchanged days do not add one
+    # The analytical store is ~1 GB a copy, so its retention is counted in
+    # days of recovery rather than months of history. Three covers "last
+    # night was bad" without turning the backup directory into the largest
+    # thing on the disk.
+    analytical_backup_keep: int = 3
 
     # --- Providers -------------------------------------------------------
     # Kite Connect is a paid subscription; this build runs on free sources.

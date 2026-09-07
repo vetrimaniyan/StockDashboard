@@ -406,10 +406,11 @@ def cmd_token(_args: argparse.Namespace) -> int:
 
 
 def cmd_backup(args: argparse.Namespace) -> int:
-    """Snapshot the user store on demand. The pipeline also does this nightly."""
-    from alpha500.db.backup import backup_app_db
+    """Snapshot a store on demand. The pipeline also does both nightly."""
+    from alpha500.db.backup import backup_analytical_db, backup_app_db
 
-    summary = backup_app_db(destination=args.to, keep=args.keep)
+    take = backup_analytical_db if args.analytical else backup_app_db
+    summary = take(destination=args.to, keep=args.keep)
     print(f"  {summary['status']}: {summary['reason']}")
     if summary.get("path"):
         print(f"  {summary['path']}")
@@ -556,6 +557,9 @@ def main(argv: list[str] | None = None) -> int:
                           help="destination directory; defaults to ALPHA500_BACKUP_DIR")
     p_backup.add_argument("--keep", type=int, default=None,
                           help="snapshots to retain (default 30)")
+    p_backup.add_argument("--analytical", action="store_true",
+                          help="snapshot alpha500.duckdb instead of app.sqlite; "
+                               "~1 GB a copy, retained 3 deep by default")
     p_serve = sub.add_parser("serve", help="start the API")
     p_serve.add_argument("--host", default=None)
     p_serve.add_argument("--port", type=int, default=None)

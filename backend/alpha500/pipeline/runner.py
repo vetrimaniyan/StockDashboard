@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterator
 
 from alpha500.config import settings
 from alpha500.db import store
-from alpha500.db.backup import backup_app_db
+from alpha500.db.backup import backup_analytical_db, backup_app_db
 from alpha500.db.connection import analytical, app, init_databases
 from alpha500.exports import export_nightly
 from alpha500.metrics.engine import compute_metrics_for_date
@@ -236,6 +236,15 @@ class Pipeline:
             summary = backup_app_db()
             outcome = str(summary["status"])
             ctx["message"] = f"{outcome}: {summary['reason']}"
+
+        # The analytical store last, and outside the app-store stage, because it
+        # is a gigabyte a copy: a failure here must not be mistaken for the
+        # irreplaceable half having gone unbacked.
+        with self._stage(result, "backup_analytical_db") as ctx:
+            outcome = backup_analytical_db(conn)
+            ctx["message"] = f"{outcome['status']}: {outcome.get('reason')}"
+            if outcome["status"] == "FAILED":
+                ctx["status"] = "FAILED"
             # job_runs records OK/FAILED/SKIPPED only; an unchanged store is a
             # successful backup, and the message says which.
             ctx["status"] = {"UNCHANGED": "OK"}.get(outcome, outcome)
