@@ -337,7 +337,7 @@ decision to deepen the stock backfill, which remains governed by D-9.
 | # | Item | Status |
 |---|---|---|
 | B-1 | Is vendor history split/bonus adjusted? | **Resolved** — see D-4 |
-| B-2 | Corporate-action history source | Open. Yahoo covers splits and dividends; bonus/rights are not distinguished. |
+| B-2 | Corporate-action history source | Open. Yahoo covers splits and dividends; bonus/rights are not distinguished, and **nor are demergers**. Concrete instance 2026-09-07: HEG closed 728.25 -> 272.20, a -62.6% unadjusted move, with no action in the feed; NSE simultaneously listed a `DUMMYHEG` entitlement scrip, which is the demerger's signature. V5 caught it and quarantined the row, so no metric consumed a -62% return - the gate worked. But the split-adjustment factor is not corrected for the event, so HEG's history is discontinuous across it until a source that reports demergers is found. |
 | B-3 | Market-cap band source | Open. Not required for Phase 1 metrics. |
 | B-4 | Confirm NSE URLs | **Verified 2026-08-26** — constituent list, UDiFF bhavcopy and MTO delivery file all live. |
 | B-5 | NRI TDS mechanics and rates | Open. Defaults are configurable placeholders and must be confirmed with a cross-border CA before Phase 2 release. |
