@@ -228,6 +228,23 @@ class Pipeline:
                     ctx["message"] = str(exc)
                     result.messages.append(f"screen export failed: {exc}")
 
+            # Inside the analytical context on purpose: DuckDB allows one
+            # writer per file across the machine, so the snapshot has to borrow
+            # the connection the pipeline already holds rather than open a
+            # second one and deadlock against itself.
+            #
+            # Never fatal. The night's metrics are already written, and losing
+            # them to a failed copy would be perverse.
+            with self._stage(result, "backup_analytical_db") as ctx:
+                snapshot = backup_analytical_db(conn)
+                status = str(snapshot["status"])
+                ctx["message"] = f"{status}: {snapshot['reason']}"
+                ctx["status"] = "FAILED" if status == "FAILED" else "OK"
+                if status == "FAILED":
+                    result.messages.append(
+                        f"analytical backup failed: {snapshot['reason']}"
+                    )
+
         # Last, and deliberately outside the analytical connection. The user
         # store is the half of the data that no backfill can reconstruct, so
         # it is snapshotted on every run that gets this far. A backup nobody
@@ -236,15 +253,6 @@ class Pipeline:
             summary = backup_app_db()
             outcome = str(summary["status"])
             ctx["message"] = f"{outcome}: {summary['reason']}"
-
-        # The analytical store last, and outside the app-store stage, because it
-        # is a gigabyte a copy: a failure here must not be mistaken for the
-        # irreplaceable half having gone unbacked.
-        with self._stage(result, "backup_analytical_db") as ctx:
-            outcome = backup_analytical_db(conn)
-            ctx["message"] = f"{outcome['status']}: {outcome.get('reason')}"
-            if outcome["status"] == "FAILED":
-                ctx["status"] = "FAILED"
             # job_runs records OK/FAILED/SKIPPED only; an unchanged store is a
             # successful backup, and the message says which.
             ctx["status"] = {"UNCHANGED": "OK"}.get(outcome, outcome)
