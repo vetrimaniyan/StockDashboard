@@ -4,11 +4,17 @@
  * meaningful once you know it has historically sat near 25. So the current
  * figure is shown beside its own 7- and 10-year medians and the gap between
  * them, which is the number that actually carries information.
+ *
+ * The as-of date is part of that, not decoration (FR-8.9). These ratios come
+ * from their own NSE file on their own schedule, so they can lag the rest of
+ * the dataset independently — and a stale P/E does not look stale, it looks
+ * like a market that has not moved. The column says "P/E now", so the page
+ * has to be able to say when "now" was.
  */
 
 import { useEffect, useState } from 'react'
 import { ApiError, api, type IndexValuationResponse } from '../api'
-import { num } from '../format'
+import { formatDate, num } from '../format'
 
 function Gap({ value }: { value: number | null }) {
   if (value === null || !Number.isFinite(value)) {
@@ -51,6 +57,23 @@ export function IndexValuation() {
 
   return (
     <div>
+      <div
+        role={data.is_stale ? 'alert' : undefined}
+        className={`mb-2 flex items-center gap-2 flex-wrap ${
+          data.is_stale ? 'text-[var(--warn)]' : 'text-[var(--muted)]'
+        }`}
+      >
+        <span className="font-medium">
+          {data.is_stale ? '⚠ Valuations are stale' : '● Valuations current'}
+        </span>
+        <span>
+          as of <strong>{formatDate(data.as_of)}</strong>
+        </span>
+        {data.is_stale && data.latest_session !== data.as_of && (
+          <span>· latest completed session {formatDate(data.latest_session)}</span>
+        )}
+        {data.reason && <span className="opacity-90">· {data.reason}</span>}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="text-[var(--muted)]">

@@ -30,10 +30,49 @@ from alpha500.providers.models import (
 )
 
 # Yahoo's ticker for the NIFTY 500 index.
+# Index name -> Yahoo ticker. Vendor identifiers, so they live here and not in
+# the tracked-universe config (AR-1).
+#
+# The sectoral and thematic entries were verified against the live vendor on
+# 2026-09-07 (B-10): each returns full OHLC. Depth varies and none reaches
+# inception — Nifty Bank starts 2007-09-17 against a 2003 launch — which is why
+# FR-18.2 records `first_session` and refuses the "all-time" label rather than
+# assuming the series is complete.
+#
+# Six tracked indices are deliberately absent: Healthcare, Consumer Durables,
+# Oil & Gas, India Defence, CPSE and India Manufacturing have no ticker that
+# resolved, and fall back to the close-only path in FR-18.2.
 _INDEX_SYMBOLS: Final[dict[str, str]] = {
     "NIFTY500": "^CRSLDX",
     "NIFTY50": "^NSEI",
+    "NIFTY BANK": "^NSEBANK",
+    "NIFTY IT": "^CNXIT",
+    "NIFTY AUTO": "^CNXAUTO",
+    "NIFTY PHARMA": "^CNXPHARMA",
+    "NIFTY FMCG": "^CNXFMCG",
+    "NIFTY METAL": "^CNXMETAL",
+    "NIFTY REALTY": "^CNXREALTY",
+    "NIFTY MEDIA": "^CNXMEDIA",
+    "NIFTY PSU BANK": "^CNXPSUBANK",
+    "NIFTY PRIVATE BANK": "NIFTY_PVT_BANK.NS",
+    "NIFTY FINANCIAL SERVICES": "NIFTY_FIN_SERVICE.NS",
+    "NIFTY ENERGY": "^CNXENERGY",
+    "NIFTY INFRASTRUCTURE": "^CNXINFRA",
+    "NIFTY COMMODITIES": "^CNXCMDT",
+    "NIFTY INDIA CONSUMPTION": "^CNXCONSUM",
+    "NIFTY PSE": "^CNXPSE",
+    "NIFTY MNC": "^CNXMNC",
+    "NIFTY SERVICES SECTOR": "^CNXSERVICE",
 }
+
+
+def has_index_ticker(index_name: str) -> bool:
+    """Whether Yahoo can serve this index at all.
+
+    FR-18.2 branches on this rather than catching the ProviderError, so that a
+    genuinely absent ticker and a transient vendor failure stay distinguishable.
+    """
+    return index_name.upper() in _INDEX_SYMBOLS
 
 
 def to_yahoo_symbol(tradingsymbol: str) -> str:

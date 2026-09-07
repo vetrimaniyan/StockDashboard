@@ -288,6 +288,50 @@ that a faster machine would only have hidden.
 
 ---
 
+## D-11 — Index history depth is set by what a source can serve, not by a target
+
+**Context.** FR-18 wants each sectoral and thematic index shown against its
+all-time high. The first draft proposed backfilling ~25 index series to
+inception and called the cost immaterial — true of the storage, and beside the
+point. Nothing in the provider package can serve it. `YahooProvider` maps two
+index tickers (`^CRSLDX`, `^NSEI`); the NSE archive file already ingested into
+`index_valuation_daily` covers ~165 indices but carries close only, no OHLC, and
+this store holds it from 2016.
+
+**Decision.** Depth is recorded per index rather than assumed, and the peak
+metric is named after the depth actually achieved: `ath_value` / `pct_from_ath`
+only where an index's series demonstrably reaches its documented inception,
+`period_high` / `pct_from_period_high` otherwise, with `first_session` shown
+beside it.
+
+**What the probe returned (B-10, 2026-09-07).** No index reaches inception from
+any available source. The deepest series obtainable are Nifty Bank and Nifty IT
+at 2007-09-17, against launch dates of 2003 and earlier; most others start in
+2011 and Private Bank in 2016. So the rule resolves, for now, to `period_*`
+everywhere and `ath_*` nowhere. Inception dates are a hand-maintained config
+field rather than a derived one, because no source this system can reach states
+them, and asserting them from memory is the failure this decision exists to
+prevent.
+
+FR-18.2 separately records `ohlc_basis` (`OHLC` for the 18 indices Yahoo serves,
+`CLOSE` for the rest), which is an independent fact from depth and decides only
+whether high/low metrics use real highs and lows.
+
+**Why this and not a target depth.** `docs/URD.md` section 1 cites FR-15.2 as
+the reason "the period high is not called an all-time high" for stocks.
+Computing `ath_value` for an index from a series starting in 2016 and labelling
+it all-time is that same error with a new name, and it fails in the same
+direction: an index that peaked in 2007 reads as near its high when it is far
+below it. Naming the metric after the data is the rule the document already
+applies, and the one it would break here.
+
+The asymmetry with stock history is deliberate and should not be read as a
+decision to deepen the stock backfill, which remains governed by D-9.
+
+**State.** Proposed. Sourcing is B-10.
+
+---
+
 ## Open items still outstanding
 
 | # | Item | Status |
@@ -301,3 +345,5 @@ that a faster machine would only have hidden.
 | B-7 | Portfolio value source for sizing | Open. Currently a manual input to the sizing endpoint. |
 | B-8 | Records stated five years of history; the store holds eight | **Resolved 2026-08-31** — README and D-7 corrected, D-9 heading now names its resolution. Detail in `docs/URD.md` §8. |
 | B-9 | NFR-1.7 recompute breaching at ~116 s against a 60 s budget | **Resolved 2026-08-31** — see D-10. Two FR-14 support kernels were per-bar Python loops; vectorised to ~24 s with bit-identical output. |
+| B-10 | What index history can actually be obtained, and at what depth? | **Resolved 2026-09-07** — probed against the live sources; findings in `docs/FR-18-sectoral-index-dashboard.md` §7. NSE's `indicesHistory` and `equity-stockIndices` JSON endpoints are bot-blocked and unavailable. Yahoo serves full OHLC for 18 of 22 sectoral/thematic indices, deepest 2007-09-17 (Bank, IT), most 2011, Private Bank 2016; the four launched after 2020 have no ticker and fall back to the close-only `ind_close_all` already ingested. 24 of 25 NSE constituent lists resolve, on the same schema as the NIFTY 500 list and with no weight column. **No index reaches inception**, so `ath_*` naming is withdrawn and every index reports `period_*` — see D-11. Free-float weights are derivable from `floatShares × price` but overstate concentration on capped indices by ~7 points (Nifty Bank top-3: 69.2% derived vs 60-63% published). |
+| B-11 | Does sector selection improve the stock screens, or just add a step? | Open. The premise of FR-18, and an assumption rather than a finding. Testable: run the existing screens over the eight-year window unfiltered, then filtered to the top 5 sectors by `sector_momentum_score` as at each entry date, on the point-in-time universe, net of the FR-12.5 cost model including TDS. Compare CAGR, max drawdown, hit rate and trade count — a filter that improves hit rate while halving opportunities may not improve the portfolio. Plausible negative result worth naming now: momentum screens already cluster by sector unprompted, so an explicit filter may add process without adding return. If so, keep the view as context and drop the hand-off rather than tuning the score. |

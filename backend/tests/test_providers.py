@@ -120,6 +120,103 @@ def test_present_columns_pass():
     _require_columns(["A", "B", "C"], frozenset({"A", "B"}), "test")
 
 
+class _CannedSession:
+    """Stands in for NseSession, returning one recorded body."""
+
+    def __init__(self, body: str) -> None:
+        self.content = body.encode("utf-8")
+
+    def get(self, url: str, *, referer: str | None = None):  # noqa: ARG002
+        return self
+
+    def close(self) -> None:
+        pass
+
+
+_INDEX_CLOSE_HEADER = (
+    "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+    "Closing Index Value,Points Change,Change(%),Volume,Turnover (Rs. Cr.),"
+    "P/E,P/B,Div Yield"
+)
+_INDEX_CLOSE_ROW = (
+    "Nifty 50,25-08-2026,24300.00,24400.00,24250.00,24334.55,30.10,0.12,"
+    "250000000,32000.00,20.57,2.95,1.15"
+)
+
+
+def _canned(header: str, row: str) -> NseArchiveProvider:
+    return NseArchiveProvider(session=_CannedSession(header + "\n" + row + "\n"))
+
+
+def test_index_close_parses_the_published_header():
+    rows = _canned(_INDEX_CLOSE_HEADER, _INDEX_CLOSE_ROW).get_index_valuations(
+        date(2026, 8, 25)
+    )
+    assert rows == [
+        {
+            "index_name": "Nifty 50",
+            "close": 24334.55,
+            "pe": 20.57,
+            "pb": 2.95,
+            "div_yield": 1.15,
+        }
+    ]
+
+
+def test_index_close_renaming_a_ratio_column_raises_rather_than_nulling_it():
+    """The gap that let the index medians thin out silently.
+
+    A renamed ratio column still leaves ``Index Name`` parseable, so rows keep
+    inserting and the stage keeps reporting a non-zero row count while every
+    P/E lands as NULL. Nothing downstream can tell that apart from an index
+    that genuinely has no ratio, so it has to fail here.
+    """
+    drifted = _INDEX_CLOSE_HEADER.replace(",P/E,", ",PE Ratio,")
+    with pytest.raises(SchemaDriftError, match="P/E"):
+        _canned(drifted, _INDEX_CLOSE_ROW).get_index_valuations(date(2026, 8, 25))
+
+
+def test_index_close_tolerates_a_byte_order_mark_on_the_first_column():
+    """``Index Name`` is the first column, so a BOM attaches to it directly.
+
+    Left in place it would make every row nameless, and nameless rows are
+    skipped — the file would read as an empty session rather than an error.
+    """
+    provider = _canned("\ufeff" + _INDEX_CLOSE_HEADER, _INDEX_CLOSE_ROW)
+    assert provider.get_index_valuations(date(2026, 8, 25))[0]["index_name"] == "Nifty 50"
+
+
+def test_a_zero_dividend_yield_is_kept_as_a_reading():
+    """Zero payout is a fact about the index, not a missing value.
+
+    The sign rule belongs to P/E, where a non-positive aggregate is not a
+    valuation. Applying it to every field made a real 0.00 yield indistinguish-
+    able from an unpublished one.
+    """
+    row = _INDEX_CLOSE_ROW.replace(",20.57,2.95,1.15", ",20.57,2.95,0.00")
+    parsed = _canned(_INDEX_CLOSE_HEADER, row).get_index_valuations(date(2026, 8, 25))
+
+    assert parsed[0]["div_yield"] == 0.0
+
+
+def test_a_non_positive_ratio_is_still_dropped():
+    """A loss-making aggregate is not a number to median against."""
+    row = _INDEX_CLOSE_ROW.replace(",20.57,2.95,1.15", ",-8.40,0.00,1.15")
+    parsed = _canned(_INDEX_CLOSE_HEADER, row).get_index_valuations(date(2026, 8, 25))
+
+    assert parsed[0]["pe"] is None
+    assert parsed[0]["pb"] is None
+    assert parsed[0]["div_yield"] == 1.15
+
+
+def test_index_close_ignores_columns_it_does_not_read():
+    """NSE adding a field must not break the nightly run."""
+    provider = _canned(
+        _INDEX_CLOSE_HEADER + ",New Field", _INDEX_CLOSE_ROW + ",99"
+    )
+    assert provider.get_index_valuations(date(2026, 8, 25))[0]["pe"] == 20.57
+
+
 # --- CsvFileProvider -----------------------------------------------------
 
 

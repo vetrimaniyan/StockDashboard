@@ -80,13 +80,14 @@ a number, a row count, a named test, a specific symbol on a specific date.>
 | FR-15.x | Size tier and period high | This document, §6 | In use |
 | FR-16.x | Operability | This document, §6 | In use |
 | FR-17.x | Fibonacci retracement zone | This document, §6 | In use |
-| **FR-18.x** | — | — | **Next free** |
+| FR-18.x | Sectoral and thematic indices | This document, §6 | In use |
+| **FR-19.x** | — | — | **Next free** |
 
 Supporting series: `NFR-1` to `NFR-6` (non-functional), `AR-1` to `AR-4`
-(architecture), `D-1` to `D-10` (decisions, in `DECISIONS.md`), `B-1` to `B-9`
+(architecture), `D-1` to `D-11` (decisions, in `DECISIONS.md`), `B-1` to `B-11`
 (open questions, in `DECISIONS.md`), `R-x` (risks; R-1, R-3, R-5 cited in code).
 
-Next free: **NFR-7**, **D-11**, **B-10**.
+Next free: **NFR-7**, **D-12**, **B-12**.
 
 ---
 
@@ -415,6 +416,209 @@ ratios with their windows.
 
 ---
 
+### FR-18 — Sectoral and thematic index dashboard
+
+Full proposal and reasoning in `docs/FR-18-sectoral-index-dashboard.md`.
+
+**FR-18.1 — Index universe.** Approximately 25 NSE indices — all sectoral, plus
+thematics whose constituent base is materially distinct — held as a versioned
+configuration list, not derived at runtime.
+
+Strategy and factor indices (Alpha, Quality, Low Volatility, Equal Weight) MUST
+NOT appear: they measure a factor across sectors, not a sector, and ranking them
+alongside sectoral indices invites a rotation conclusion the data does not
+support. A thematic overlapping a tracked index by more than a configurable
+share of weight (default 70%) MUST be flagged `OVERLAPS:<index>` — two
+near-identical indices ranking one and two reads as a confirmed rotation when it
+is one move counted twice.
+
+The universe is **24 indices** as at 2026-09-07: those whose NSE constituent
+list resolves (B-10 §7.2). Nifty Capital Markets is deferred until its archive
+slug is known. Each entry MUST carry a hand-maintained `documented_inception`,
+which FR-18.2 reads.
+
+*Acceptance:* 24 ± 3 indices; every entry resolves to a live NSE constituent
+list; no strategy or factor index appears; at least one thematic carries an
+`OVERLAPS` flag.
+
+*Status:* Proposed
+
+**FR-18.2 — Index history, to the depth actually obtainable.** A daily series
+per tracked index, each with its actual `first_session` recorded, extending the
+existing `index_ohlcv_daily` table rather than adding a second one. A distinct
+pipeline stage from constituent ingestion, failing as a Warn not a Block
+(FR-4.1) — 500 stock rows remain correct without it.
+
+Ingestion is hybrid and permanently so (B-10, resolved): Yahoo serves OHLC for
+18 of the tracked indices, and the already-ingested close-only `ind_close_all`
+covers the rest. No new provider is needed — `_INDEX_SYMBOLS` widens from two
+entries to eighteen, plus a close-only path.
+
+Two independent facts MUST be recorded and displayed per index. `ohlc_basis`
+(`OHLC` | `CLOSE`) decides whether `high_52w` and `low_52w` use real highs and
+lows or are computed on close. `reaches_inception` decides the peak's name:
+`ath_*` only where `first_session` is on or before the index's documented
+inception, `period_*` otherwise. Inception is a hand-maintained field in
+FR-18.1's config because no automated source states it, and no index currently
+qualifies — Nifty Bank launched in 2003 and its deepest available series starts
+in 2007. **`ath_*` therefore appears nowhere today.** This is FR-15.2's rule
+reaching its expected answer rather than being argued around.
+
+The series is price return, not total return, and reconstitution means an old
+peak was set by a different basket. Both MUST be labelled wherever a peak shows.
+
+*Acceptance:* `first_session`, `ohlc_basis` and `reaches_inception` stored and
+shown per index; no
+view, export or registry entry uses "all-time" for an index whose
+`first_session` postdates its documented inception; a simulated index feed
+failure produces a Warn and leaves the stock pipeline Built and current.
+
+*Status:* Proposed
+
+**FR-18.3 — Range and drawdown.** Per index and session: `high_52w`, `low_52w`,
+`range_position_52w`, `pct_from_52w_high`, `peak_value`, `peak_date`,
+`pct_from_peak`, `sessions_since_peak`. The current bar MUST be excluded from
+`peak_value` per FR-15.2, or an index making a new high today reads as 0% below
+its peak and is indistinguishable from one still approaching it.
+
+`drawdown_duration` MUST NOT be added: `peak_value` is the running maximum
+excluding today, so every session after `peak_date` is below it by construction
+and the count is identical to `sessions_since_peak` on every row.
+
+*Acceptance:* for `low_52w 40,000`, `high_52w 52,000`, `peak_value 55,000`,
+close `46,000`: `range_position_52w = 0.500`, `pct_from_52w_high = -11.54%`,
+`pct_from_peak = -16.36%`. Named test
+`test_index_range_and_drawdown_worked_example`.
+
+*Status:* Proposed
+
+**FR-18.4 — Trend state, in three values not two.** `UPTREND` requires close >
+SMA200, SMA50 > SMA200 and SMA200 rising over 21 sessions; `DOWNTREND` the
+mirror; `TRANSITIONAL` everything else. MUST NOT be reduced to a binary — an
+index oscillating around a flat 200 SMA satisfies neither definition, and
+collapsing it into "uptrend" because price is a fraction above the line
+manufactures conviction the data does not contain. Carries `sessions_in_state`.
+
+*Acceptance:* a synthetic series flat at its 200 SMA with slope inside ±0.1%
+over 21 sessions classifies `TRANSITIONAL`. On any live session the three states
+sum to the tracked index count with no nulls. Named test
+`test_trend_state_returns_transitional_when_neither_definition_holds`.
+
+*Status:* Proposed
+
+**FR-18.5 — Sector breadth.** Share of members above their 50 and 200 SMA,
+within 2% of a 52-week high, and at `trend_template_score >= 6`, plus
+`member_count`. The constituent-to-index mapping MUST be a versioned
+configuration table and MUST NOT be derived at runtime from
+`instruments.industry` — Financial Services alone feeds Nifty Bank, Nifty PSU
+Bank, Nifty Private Bank and Nifty Financial Services, so a runtime derivation
+assigns members to the wrong index or to several.
+
+An index in `UPTREND` with breadth below 40% is not a sector in an uptrend, and
+the view MUST show the two adjacently. Breadth comes from the NIFTY 500, not
+published membership, so a sector holding names outside the 500 is measured on a
+subset; below 8 contributing members breadth MUST be suppressed rather than
+shown. Measured 2026-09-07 (B-10 §7.4), the limit is narrow: 21 of 24 indices
+have every member inside the 500, PSU Bank has 11 of 12, India Defence 11 of 19,
+and **only Nifty Media (5 of 10) is suppressed**.
+
+*Acceptance:* 26 of 40 members above their 50 SMA reports 65.0% with
+`member_count = 40`; 5 members reports suppressed, not a percentage. Named test
+`test_breadth_suppressed_below_member_floor`.
+
+*Status:* Proposed
+
+**FR-18.6/18.7 — Relative strength and breadth thrust.** `rs_ratio_N` for N in
+{21, 63, 126, 252} against NIFTY 500, plus the rebased `rs_line`, its 50-session
+SMA, `rs_improving` and `rs_new_high_63`. `rs_ratio_63` is the primary rotation
+metric: a sector up 6% while the market rose 9% is one to avoid, and absolute
+return will not tell you that. `rs_new_high_63` MUST be computed on the ratio
+line, not price — a sector at a new relative high while still below its own
+52-week high is the earliest reliable rotation signal here, and a price filter
+cannot see it.
+
+`breadth_thrust` flags `breadth_above_50dma` crossing from below 30% to above
+50% within 10 sessions, thresholds configurable, recording
+`breadth_thrust_date` and persisting 20 sessions — its value is that it fired
+recently, not that it fires today.
+
+*Acceptance:* index 63-session return `0.18` against `0.06` gives
+`rs_ratio_63 = 11.32%`. A breadth series `28, 31, 38, 44, 52` sets the flag on
+the fifth session and retains it for 20. Named tests
+`test_relative_strength_ratio` and
+`test_breadth_thrust_fires_on_crossing_not_on_level`.
+
+*Status:* Proposed
+
+**FR-18.8 — Sector momentum score.** `0.30*z(momentum_score) +
+0.25*z(rs_ratio_63) + 0.20*z(breadth_above_50dma) + 0.15*z(breadth_at_52w_high)
++ 0.10*z(rs_ratio_21)`, reusing the existing engine's definitions.
+
+Outliers clipped at ±3 standard deviations. FR-6.8's 1st/99th percentile
+winsorisation MUST NOT be reused: written for a 500-symbol cross-section, at
+n≈25 the 1st percentile is the minimum, so the clip does nothing and the score
+inherits an unguarded tail. Suppressed breadth redistributes its weight
+proportionally rather than counting zero, which would rank an unmeasurable
+sector as a weak one. The peak-distance metric carries zero weight — a sector
+40% off a 2021 high can be the strongest thing in the market today.
+
+*Acceptance:* scores computed for all tracked indices with no nulls; a
+suppressed-breadth sector scores from redistributed weights and is marked; a
+component at 8 standard deviations moves the score no further than one at 3.
+Named tests `test_sector_score_redistributes_suppressed_breadth_weight` and
+`test_sector_score_clips_outliers_at_three_sigma`.
+
+*Status:* Proposed
+
+**FR-18.9 — Concentration, dispersion and persistence.** `top3_weight_pct`,
+`constituent_dispersion` and `leadership_persistence` qualify the score and MUST
+NOT be folded into it — a score that has absorbed them cannot be interrogated.
+Above a configurable 45% top-3 weight the row carries a concentration badge: a
+trend on a 55%-concentrated index is a view on two companies.
+
+`top3_weight_pct` is **derived** from free-float market cap (B-10, resolved):
+NSE's constituent lists carry no weight column, so weight is `floatShares ×
+price` normalised across members. It MUST be labelled `DERIVED` and MUST NOT be
+presented as the published weight. On Nifty Bank the derived top three reads
+69.2% against a published 60–63%: uncapped derivation always overstates
+concentration on a capped index, which is the safe direction for a warning and
+the wrong direction for anything precise. FR-18.1's 70% overlap test therefore
+uses membership overlap by count, not these weights. Where a member's float
+figure is missing the metric MUST report unavailable rather than normalise over
+a partial basket.
+
+*Acceptance:* members weighing 28%, 14% and 9% report `top3_weight_pct = 51%`
+with the badge; an index with no stored membership reports unavailable and no
+badge. Named test `test_concentration_badge_fires_above_threshold`.
+
+*Status:* Proposed
+
+**FR-18.10/18.11 — The view, the hand-off, and the restraint.** One row per
+index as a horizontal range bar, sorted by `trend_state` then score descending.
+The track MUST span `low_52w` to `max(high_52w, peak_value)`, or the peak marker
+falls outside the drawn range and disappears on exactly the indices furthest
+from their peak. `trend_state` MUST be carried by glyph or label as well as
+colour (NFR-6.3).
+
+The view MUST NOT present a buy signal on an index — futures need a custodian
+and are out of scope under FR-12. Each row MUST offer a one-click hand-off
+applying the sector as a filter to the existing screens; without it the view is
+a wall-chart rather than a tool. No forecast, projected return, or predictive
+label anywhere, per the restraint FR-17.9 applies to Fibonacci levels.
+`leadership_persistence` MUST be shown by default, not behind a toggle: a
+ranking showing only the score presents a sector in its fortieth week of
+leadership identically to one in its second, and buying the first believing it
+is the second is the ranking's most common misuse.
+
+*Acceptance:* an index whose peak exceeds its 52-week high renders with the peak
+marker inside the track; the hand-off filters Momentum Leaders to that sector's
+constituents only; `UPTREND` sorts above `TRANSITIONAL` above `DOWNTREND`; a
+full-text search of the bundle, registry and manual returns zero occurrences of
+"forecast", "projected" or "predicted" applied to a sector.
+
+*Status:* Proposed
+---
+
 ## 7. Non-functional status
 
 | ID | Requirement | Budget | Measured | State |
@@ -488,5 +692,7 @@ already inside budget was rejected; see D-10.
 | 2026-08-31 | B-8 resolved: README and D-7 corrected to eight years, D-9 heading fixed | — |
 | 2026-08-31 | B-9 resolved: support kernels vectorised, NFR-1.7 back inside budget | NFR-1.7 |
 | 2026-08-31 | Fibonacci retracement zone: 26 metrics and the ninth screen | FR-17.1-17.10 |
+| 2026-09-07 | Sector/thematic index dashboard: range and drawdown, three-state trend, breadth, rotation metrics | FR-18.1–18.11 |
+| 2026-09-07 | B-10 resolved: index history sourced (Yahoo OHLC for 18, close-only for the rest), weights derived, `ath_*` naming withdrawn | FR-18.1, FR-18.2, FR-18.5, FR-18.9 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
