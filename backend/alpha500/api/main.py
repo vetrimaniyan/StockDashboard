@@ -717,6 +717,45 @@ def get_index_valuation() -> dict[str, Any]:
     }
 
 
+@app.get("/api/indices/sectors")
+def get_sector_indices() -> dict[str, Any]:
+    """FR-18.3/18.4 — where each tracked sector index sits in its own range.
+
+    Deliberately not a ranking and deliberately not a signal. It answers "which
+    segments are trending and how far below their own peak do they sit", which
+    narrows which stock screens are worth reading (FR-18.10). Ranking by a
+    momentum score arrives with FR-18.8; until then the sort is trend state,
+    then position in the 52-week range, which is a position and not a verdict.
+    """
+    from alpha500.pipeline.index_metrics import compute_index_metrics, sort_key
+
+    with analytical(read_only=True) as conn:
+        rows = sorted(compute_index_metrics(conn), key=sort_key)
+
+    measurable = [r for r in rows if r.available]
+    counts: dict[str, int] = {}
+    for row in measurable:
+        if row.trend_state:
+            counts[row.trend_state] = counts.get(row.trend_state, 0) + 1
+
+    return {
+        "indices": [r.as_dict() for r in rows],
+        "as_of": max((r.as_of for r in measurable if r.as_of), default=None),
+        "measurable": len(measurable),
+        "tracked": len(rows),
+        "trend_counts": counts,
+        # FR-18.11: these say where strength currently sits, not where it will
+        # sit next. The wording is load-bearing - a sector view invites the
+        # forecast reading more than any other screen in this product.
+        "note": (
+            "Current leadership, not a forecast. The peak is a period high over "
+            "each index's stored history, which does not reach its inception, so "
+            "it is not an all-time high. Indices whose series is sampled rather "
+            "than daily are reported unavailable rather than estimated."
+        ),
+    }
+
+
 @app.get("/api/fib/funnel")
 def get_fib_funnel(as_of: date | None = None) -> dict[str, Any]:
     """Stage-by-stage survivor counts for the FR-17 screen (FR-17.8).

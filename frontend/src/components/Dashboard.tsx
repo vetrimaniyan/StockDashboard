@@ -11,6 +11,7 @@ import type { DashboardResponse, ScreenRow } from '../api'
 import { currency, signedPct, directionClass, num, EM_DASH } from '../format'
 import { IndexValuation } from './IndexValuation'
 import { RegimeBanner } from './RegimeBanner'
+import { SectorIndices } from './SectorIndices'
 
 interface Props {
   data: DashboardResponse
@@ -185,6 +186,16 @@ export function Dashboard({ data, onSelect, onOpenScreen }: Props) {
         subtitle="Current P/E for each size segment against its own 7- and 10-year medians. A level alone says nothing; the gap to its own history does."
       >
         <IndexValuation />
+      </Panel>
+
+      {/* FR-18: sector rotation, not sector timing. Sits below the size-segment
+          valuations because it answers a different question - not "is this
+          segment expensive" but "where is strength sitting right now". */}
+      <Panel
+        title="Sector indices"
+        subtitle="Where each sectoral and thematic index sits in its own 52-week range, and how far below its own period high. Current leadership, not a forecast, and not a signal to buy an index."
+      >
+        <SectorIndices />
       </Panel>
 
       {/* FR-14.6: pullbacks to support with reversal confirmation. FR-14.7
