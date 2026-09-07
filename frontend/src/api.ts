@@ -179,6 +179,7 @@ export const api = {
   stock: (symbol: string) =>
     request<StockDetail>(`/api/stock/${encodeURIComponent(symbol)}`),
   indexValuation: () => request<IndexValuationResponse>('/api/indices/valuation'),
+  sectorIndices: () => request<SectorIndicesResponse>('/api/indices/sectors'),
   backtestAvailability: () =>
     request<BacktestAvailability>('/api/backtest/availability'),
   backtest: (params: BacktestParams) =>
@@ -226,6 +227,45 @@ export interface IndexValuationResponse {
   history_from: string | null
   history_to: string | null
   observations: number
+  note: string
+}
+
+/** FR-18.3/18.4. `period_high`, never an all-time high: no index's stored
+ *  series reaches its documented inception (D-11), and naming it otherwise
+ *  would repeat the mistake FR-15.2 exists to prevent. */
+export interface SectorIndex {
+  index_name: string
+  category: 'SECTORAL' | 'THEMATIC'
+  as_of: string | null
+  close: number | null
+  /** OHLC where real highs and lows exist, CLOSE where the range was measured
+   *  on closing values because no intraday data was available. */
+  ohlc_basis: 'OHLC' | 'CLOSE' | null
+  sessions: number
+  high_52w: number | null
+  low_52w: number | null
+  range_position_52w: number | null
+  pct_from_52w_high: number | null
+  period_high: number | null
+  period_high_date: string | null
+  pct_from_period_high: number | null
+  sessions_since_period_high: number | null
+  sma_50: number | null
+  sma_200: number | null
+  trend_state: 'UPTREND' | 'DOWNTREND' | 'TRANSITIONAL' | null
+  sessions_in_state: number | null
+  /** False where the series is too short or too sparse to answer. The row is
+   *  still returned, with a reason, rather than dropped. */
+  available: boolean
+  reason: string | null
+}
+
+export interface SectorIndicesResponse {
+  indices: SectorIndex[]
+  as_of: string | null
+  measurable: number
+  tracked: number
+  trend_counts: Record<string, number>
   note: string
 }
 
