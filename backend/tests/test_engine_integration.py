@@ -8,12 +8,17 @@ Covers several Phase 1 sign-off criteria from SRS section 15 directly:
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 
 from alpha500.metrics.engine import compute_metrics_for_date
-from alpha500.pipeline.validation import Severity, run_gate
+from alpha500.pipeline.validation import (
+    CheckResult,
+    GateResult,
+    Severity,
+    run_gate,
+)
 
 
 def _metrics(conn, as_of):  # type: ignore[no-untyped-def]
@@ -444,3 +449,49 @@ def test_block_leaves_the_prior_dataset_in_place(conn, universe):
         "SELECT count(*) FROM metrics_daily WHERE trade_date = ?", [previous]
     ).fetchone()[0]
     assert served == 6
+
+
+# --- the gate's durable record (FR-5.2) ----------------------------------
+
+
+def _gate(*results: CheckResult) -> GateResult:
+    return GateResult(trade_date=date(2026, 9, 7), results=list(results))
+
+
+def test_a_warning_names_the_check_that_raised_it():
+    """`summary()` is what `job_runs` stores; the CheckResult objects live only
+    for the length of the run. A count with no check id is a warning nobody can
+    look up afterwards, which is how "passed with 1 warning(s)" sat in the run
+    log with no way to learn what it was.
+    """
+    gate = _gate(
+        CheckResult("V5", "Daily move > 35% without corporate action",
+                    Severity.WARN, True),
+        CheckResult("V6", "Volume = 0 on a trading session", Severity.WARN,
+                    False, "3 symbols with zero volume", affected=3),
+    )
+
+    summary = gate.summary()
+
+    assert "1 warning(s)" in summary
+    assert "V6" in summary
+    assert "3 symbols with zero volume" in summary
+
+
+def test_a_block_names_its_failing_checks_too():
+    gate = _gate(
+        CheckResult("V1", "Universe size", Severity.BLOCK, False, "412 of 500"),
+        CheckResult("V6", "Volume = 0 on a trading session", Severity.WARN,
+                    False, "2 symbols"),
+    )
+
+    summary = gate.summary()
+
+    assert summary.startswith("BLOCKED")
+    assert "V1" in summary and "412 of 500" in summary
+
+
+def test_a_clean_gate_says_so_without_a_trailing_dash():
+    assert _gate(
+        CheckResult("V5", "Daily move", Severity.WARN, True)
+    ).summary() == "all checks passed on 2026-09-07"
