@@ -100,6 +100,20 @@ DELIVERY_URL: Final = NSE_ARCHIVES + "/archives/equities/mto/MTO_{ddmmyyyy}.DAT"
 _NIFTY500_COLUMNS: Final = frozenset(
     {"Company Name", "Industry", "Symbol", "Series", "ISIN Code"}
 )
+
+# NSE lists a placeholder constituent while a corporate action is in flight —
+# "DUMMYHEG" for the HEG demerger, carrying ISIN "DUM545A01024" where a real
+# Indian security's ISIN begins "IN". It never trades, so it arrives with no
+# price history and no eligibility, and every screen filters it out anyway.
+# The cost of keeping it is elsewhere: it inflates the constituent count and,
+# worse, surfaces in the Universe changes panel as a new entrant, which is
+# exactly the signal that panel exists to make trustworthy (FR-1.2).
+#
+# Matched on the symbol prefix, which is NSE's own convention, rather than on
+# the ISIN — a real listing with an unusual ISIN is a thing that could happen,
+# a real company named DUMMY-something is not.
+_PLACEHOLDER_SYMBOL_PREFIX: Final = "DUMMY"
+
 _UDIFF_COLUMNS: Final = frozenset(
     {
         "TradDt", "TckrSymb", "SctySrs", "OpnPric", "HghPric",
@@ -163,7 +177,7 @@ class NseArchiveProvider(MarketDataProvider):
         instruments: list[Instrument] = []
         for row in reader:
             symbol = (row.get("Symbol") or "").strip()
-            if not symbol:
+            if not symbol or symbol.upper().startswith(_PLACEHOLDER_SYMBOL_PREFIX):
                 continue
             isin = (row.get("ISIN Code") or "").strip() or None
             instruments.append(
@@ -375,7 +389,14 @@ class NseArchiveProvider(MarketDataProvider):
             raise SchemaDriftError(f"{index_name} constituents: empty response")
         _require_columns(reader.fieldnames, _NIFTY500_COLUMNS, f"{index_name} constituents")
         out = [(r.get("Symbol") or "").strip().upper() for r in reader]
-        return [s for s in out if s]
+        # Same placeholder rows appear here: HEG sits in Nifty Metal, so its
+        # stand-in does too, and a member the NIFTY 500 no longer carries would
+        # fail the member-floor check for reasons that have nothing to do with
+        # the index.
+        return [
+            s for s in out
+            if s and not s.startswith(_PLACEHOLDER_SYMBOL_PREFIX)
+        ]
 
     def get_index_valuations(self, on: date) -> list[dict[str, Any]]:
         """P/E, P/B and dividend yield for every index on one session.
