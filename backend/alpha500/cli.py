@@ -19,7 +19,7 @@ from alpha500.db.connection import (
 from alpha500.mktcal import calendar as cal
 from alpha500.pipeline import ingest
 from alpha500.pipeline.adjust import reconcile_adjustments
-from alpha500.pipeline.runner import Pipeline, rebuild_metrics
+from alpha500.pipeline.runner import Pipeline, log_universe_changes, rebuild_metrics
 from alpha500.providers import NseArchiveProvider, YahooProvider
 
 
@@ -62,6 +62,9 @@ def cmd_universe(_args: argparse.Namespace) -> int:
     init_databases()
     with analytical() as conn:
         count, added, removed = ingest.sync_universe(conn, NseArchiveProvider())
+    # Same log the nightly run writes. A membership change made from here is
+    # no less real, and FR-1.4's panel reads only this table.
+    log_universe_changes(added, removed)
     print(f"Universe: {count} constituents ({len(added)} added, {len(removed)} removed)")
     if added:
         print("  added:  ", ", ".join(added[:20]))

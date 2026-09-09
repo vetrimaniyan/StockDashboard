@@ -304,3 +304,69 @@ def test_yahoo_symbol_mapping():
 
     assert to_yahoo_symbol("RELIANCE") == "RELIANCE.NS"
     assert to_yahoo_symbol("bajaj-auto") == "BAJAJ-AUTO.NS"
+
+
+# --- NSE placeholder constituents ----------------------------------------
+
+_NIFTY500_HEADER = "Company Name,Industry,Symbol,Series,ISIN Code"
+
+
+def _constituent_list(*extra: str, pad_to: int = 0) -> NseArchiveProvider:
+    """A constituent CSV built from `extra`, padded with filler to `pad_to`."""
+    rows = list(extra)
+    filler = [
+        f"Filler {n} Ltd.,Financial Services,FILL{n:03d},EQ,INE000A{n:05d}"
+        for n in range(max(0, pad_to - len(rows)))
+    ]
+    body = "\n".join([_NIFTY500_HEADER, *rows, *filler]) + "\n"
+    return NseArchiveProvider(session=_CannedSession(body))
+
+
+def test_placeholder_constituent_is_not_listed():
+    """NSE stands a DUMMY row in while a corporate action is in flight.
+
+    It never trades, so it arrives with no history and no eligibility, and the
+    screens drop it anyway. The damage is that it reads as a genuine new
+    entrant in the Universe changes panel — the one place an addition has to
+    be believable.
+    """
+    provider = _constituent_list(
+        "HEG Ltd.,Metals & Mining,HEG,EQ,INE545A01024",
+        "Dummy HEG Ltd.,Metals & Mining,DUMMYHEG,EQ,DUM545A01024",
+        pad_to=500,
+    )
+
+    symbols = [i.tradingsymbol for i in provider.list_instruments()]
+
+    assert "HEG" in symbols
+    assert "DUMMYHEG" not in symbols
+    assert not any(s.startswith("DUMMY") for s in symbols)
+
+
+def test_dropping_the_placeholder_does_not_trip_the_row_count_guard():
+    """The guard exists to catch a truncated download, not a filtered row.
+
+    A list that arrives complete and loses one placeholder still has to pass;
+    otherwise the fix for a cosmetic problem takes the nightly run down.
+    """
+    provider = _constituent_list(
+        "Dummy HEG Ltd.,Metals & Mining,DUMMYHEG,EQ,DUM545A01024",
+        pad_to=500,
+    )
+
+    assert len(provider.list_instruments()) == 499
+
+
+def test_placeholder_is_dropped_from_sector_index_constituents():
+    """HEG sits in Nifty Metal, so its stand-in does too.
+
+    Left in, it counts against FR-18.1's member floor for reasons that have
+    nothing to do with the index.
+    """
+    provider = _constituent_list(
+        "HEG Ltd.,Metals & Mining,HEG,EQ,INE545A01024",
+        "Dummy HEG Ltd.,Metals & Mining,DUMMYHEG,EQ,DUM545A01024",
+        "Tata Steel Ltd.,Metals & Mining,TATASTEEL,EQ,INE081A01020",
+    )
+
+    assert provider.get_index_constituents("Nifty Metal") == ["HEG", "TATASTEEL"]

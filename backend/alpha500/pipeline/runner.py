@@ -264,16 +264,28 @@ class Pipeline:
         return result
 
     def _log_universe_changes(self, added: list[str], removed: list[str]) -> None:
-        if not added and not removed:
-            return
-        today = date.today().isoformat()
-        with app() as conn:
-            conn.executemany(
-                "INSERT INTO universe_changes (change_date, tradingsymbol, change_type, "
-                "index_name) VALUES (?,?,?,?)",
-                [(today, s, "ADDED", settings.index_name) for s in added]
-                + [(today, s, "REMOVED", settings.index_name) for s in removed],
-            )
+        log_universe_changes(added, removed)
+
+
+def log_universe_changes(added: list[str], removed: list[str]) -> None:
+    """Record membership changes for FR-1.4's Universe changes panel.
+
+    Module-level rather than a Pipeline method because ``alpha500 universe``
+    changes membership too. When only the pipeline logged, a symbol synced
+    from the CLI left the index with nothing saying it had — the panel showed
+    an addition that never got its matching removal, which is precisely the
+    kind of half-record that makes a change log stop being worth reading.
+    """
+    if not added and not removed:
+        return
+    today = date.today().isoformat()
+    with app() as conn:
+        conn.executemany(
+            "INSERT INTO universe_changes (change_date, tradingsymbol, change_type, "
+            "index_name) VALUES (?,?,?,?)",
+            [(today, s, "ADDED", settings.index_name) for s in added]
+            + [(today, s, "REMOVED", settings.index_name) for s in removed],
+        )
 
 
 def rebuild_metrics(target_date: date | None = None) -> int:
