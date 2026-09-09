@@ -49,6 +49,13 @@ interface Props {
   definitions: Map<string, MetricDefinition>
   /** Column order is owned by the Screener, beside the filter builder. */
   visible: string[]
+  /**
+   * How many rows the screen matched, and how many it returned after its own
+   * limit. These describe the screen, not the grid: `rows` may be narrower
+   * still once the browser-side filters have run.
+   */
+  matchedCount?: number
+  returnedCount?: number
   onSelect?: (symbol: string) => void
 }
 
@@ -80,7 +87,14 @@ function useIsNarrow(): boolean {
   return narrow
 }
 
-export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
+export function ResultsGrid({
+  rows,
+  definitions,
+  visible,
+  matchedCount,
+  returnedCount,
+  onSelect,
+}: Props) {
   const [sorting, setSorting] = useState<SortingState>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNarrow = useIsNarrow()
@@ -196,8 +210,23 @@ export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
     ? virtualizer.getTotalSize() - items[items.length - 1].end
     : 0
 
+  // A screen that returns exactly its limit looks identical to one that
+  // matched that many. Say which it is, or the list reads as complete.
+  const truncated =
+    matchedCount !== undefined &&
+    returnedCount !== undefined &&
+    matchedCount > returnedCount
+
   if (isNarrow) {
-    return <CardList rows={rows} onSelect={onSelect} />
+    return (
+      <CardList
+        rows={rows}
+        truncationNote={
+          truncated ? `Top ${returnedCount} of ${matchedCount} matches` : undefined
+        }
+        onSelect={onSelect}
+      />
+    )
   }
 
   return (
@@ -205,6 +234,14 @@ export function ResultsGrid({ rows, definitions, visible, onSelect }: Props) {
       <div className="flex items-center px-3 py-2 border-b border-[var(--border)]">
         <span className="text-[var(--muted)]">
           {rows.length} row{rows.length === 1 ? '' : 's'}
+          {truncated && (
+            <span
+              className="ml-2 text-[var(--warn)]"
+              title={`This screen matched ${matchedCount} constituents and keeps only its highest-ranked ${returnedCount}. The rest are not shown here — widen or clear the limit to see them.`}
+            >
+              · top {returnedCount} of {matchedCount} matches
+            </span>
+          )}
           {sorting.length > 0 && (
             <span className="ml-2">
               · sorted by {sorting.map((s) => `${s.id} ${s.desc ? '↓' : '↑'}`).join(', ')}

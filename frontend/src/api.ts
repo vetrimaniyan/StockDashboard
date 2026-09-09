@@ -72,6 +72,8 @@ export interface ScreenResponse {
   data_as_of: string | null
   status: DataStatus
   row_count: number
+  /** Rows that passed the filters before the screen's own limit truncated them. */
+  matched_count: number
   rows: ScreenRow[]
 }
 

@@ -7,11 +7,15 @@ and that no literal reaches SQL text.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from alpha500.screens.filter_engine import (
     ScreenDefinitionError,
     compile_screen,
+    run_screen,
+    run_screen_counted,
 )
 from alpha500.screens.presets import PRESETS
 
@@ -236,3 +240,62 @@ def test_momentum_breakdown_is_labelled_as_an_exit_screen():
     description = PRESETS["Momentum Breakdown"]["description"].lower()
     assert "exit" in description
     assert "not a short" in description
+
+
+# --- truncation reporting -------------------------------------------------
+
+
+def _seed_for_limit(conn, count: int) -> None:
+    """``count`` eligible symbols, each with a distinct rs_rating."""
+    for i in range(count):
+        token = 9000 + i
+        conn.execute(
+            "INSERT INTO instruments (instrument_token, tradingsymbol, series) "
+            "VALUES (?, ?, 'EQ')",
+            [token, f"SYM{i:03d}"],
+        )
+        conn.execute(
+            "INSERT INTO metrics_daily (instrument_token, trade_date, rs_rating, "
+            "is_eligible) VALUES (?, ?, ?, TRUE)",
+            [token, date(2026, 9, 8), 50 + i],
+        )
+
+
+def test_matched_count_reports_the_rows_the_limit_discarded(conn):
+    """A capped screen must not look like a complete answer.
+
+    Ten rows back from a screen that matched thirty means something different
+    from ten rows back from a screen that matched ten, and row_count alone
+    cannot tell them apart.
+    """
+    _seed_for_limit(conn, 30)
+    definition = {
+        "filters": {"op": "AND", "conditions": []},
+        "sort": [{"field": "rs_rating", "direction": "desc"}],
+        "limit": 10,
+    }
+
+    rows, matched = run_screen_counted(conn, definition, date(2026, 9, 8))
+
+    assert len(rows) == 10
+    assert matched == 30
+
+
+def test_matched_count_equals_row_count_when_nothing_was_cut(conn):
+    _seed_for_limit(conn, 4)
+    definition = {"filters": {"op": "AND", "conditions": []}, "limit": 10}
+
+    rows, matched = run_screen_counted(conn, definition, date(2026, 9, 8))
+
+    assert len(rows) == 4
+    assert matched == 4
+
+
+def test_run_screen_still_returns_just_the_rows(conn):
+    """The plain entry point keeps its signature; callers were not touched."""
+    _seed_for_limit(conn, 3)
+    rows = run_screen(
+        conn, {"filters": {"op": "AND", "conditions": []}}, date(2026, 9, 8)
+    )
+    assert isinstance(rows, list)
+    assert len(rows) == 3

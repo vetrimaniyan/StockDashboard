@@ -44,7 +44,11 @@ from alpha500.metrics import registry
 from alpha500.metrics.engine import METRIC_COLUMNS
 from alpha500.metrics.fingerprint import engine_fingerprint
 from alpha500.mktcal import calendar as cal
-from alpha500.screens.filter_engine import ScreenDefinitionError, run_screen
+from alpha500.screens.filter_engine import (
+    ScreenDefinitionError,
+    run_screen,
+    run_screen_counted,
+)
 from alpha500.screens.presets import (
     ALL_CONSTITUENTS,
     MOMENTUM_BREAKDOWN,
@@ -283,7 +287,7 @@ def get_preset_screen(preset_name: str, as_of: date | None = None) -> ScreenResp
 
     resolved = _resolve_as_of(as_of)
     with analytical(read_only=True) as conn:
-        rows = run_screen(conn, definition, resolved)
+        rows, matched = run_screen_counted(conn, definition, resolved)
 
     return ScreenResponse(
         screen_name=preset_name,
@@ -292,6 +296,7 @@ def get_preset_screen(preset_name: str, as_of: date | None = None) -> ScreenResp
         data_as_of=resolved,
         status=_data_status(),
         row_count=len(rows),
+        matched_count=matched,
         rows=rows,
     )
 
@@ -303,7 +308,7 @@ def post_custom_screen(
     resolved = _resolve_as_of(as_of)
     try:
         with analytical(read_only=True) as conn:
-            rows = run_screen(conn, definition, resolved)
+            rows, matched = run_screen_counted(conn, definition, resolved)
     except ScreenDefinitionError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -314,6 +319,7 @@ def post_custom_screen(
         data_as_of=resolved,
         status=_data_status(),
         row_count=len(rows),
+        matched_count=matched,
         rows=rows,
     )
 
@@ -329,8 +335,9 @@ def get_dashboard(as_of: date | None = None) -> DashboardResponse:
         # FR-7.6: exit signals appear above the entry candidates, always.
         exits = run_screen(conn, get_preset(MOMENTUM_BREAKDOWN), resolved)[:15]
         leaders = run_screen(conn, get_preset("Momentum Leaders"), resolved)[:10]
-        # FR-14.6: the preset already carries the ordering and the limit of 10.
-        reversals = run_screen(conn, get_preset(PULLBACK_REVERSAL), resolved)
+        # FR-14.6: the preset carries the ordering; the top-10 cap belongs to
+        # this dashboard section alone, so the screener can list every match.
+        reversals = run_screen(conn, get_preset(PULLBACK_REVERSAL), resolved)[:10]
 
         sectors = conn.execute(
             """

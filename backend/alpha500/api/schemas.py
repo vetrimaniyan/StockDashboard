@@ -95,6 +95,10 @@ class ScreenResponse(BaseModel):
     data_as_of: date | None
     status: DataStatus
     row_count: int
+    # How many rows passed the filters before the screen's own ``limit`` cut
+    # the list. Equal to ``row_count`` unless the limit truncated it, so the
+    # UI can distinguish "this is the whole answer" from "this is the top N".
+    matched_count: int
     rows: list[dict[str, Any]]
 
 

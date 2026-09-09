@@ -331,6 +331,8 @@ export function Screener({
             rows={rows}
             definitions={definitions}
             visible={columns}
+            matchedCount={screen?.matched_count}
+            returnedCount={screen?.row_count}
             onSelect={onSelectSymbol}
           />
         )}

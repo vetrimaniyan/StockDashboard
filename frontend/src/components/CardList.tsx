@@ -12,9 +12,12 @@ import { currency, directionClass, num, signedPct, EM_DASH } from '../format'
 
 export function CardList({
   rows,
+  truncationNote,
   onSelect,
 }: {
   rows: ScreenRow[]
+  /** Set when the screen's limit cut the list; see ResultsGrid. */
+  truncationNote?: string
   onSelect?: (symbol: string) => void
 }) {
   if (rows.length === 0) {
@@ -27,6 +30,9 @@ export function CardList({
 
   return (
     <div className="overflow-auto h-full p-2 space-y-2">
+      {truncationNote && (
+        <div className="px-1 pb-1 text-[var(--warn)]">{truncationNote}</div>
+      )}
       {rows.map((row) => (
         <button
           key={row.tradingsymbol}

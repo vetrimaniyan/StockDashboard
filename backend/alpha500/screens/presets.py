@@ -143,7 +143,11 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
             {"field": "support_distance_pct", "direction": "asc"},
             {"field": "instrument_token", "direction": "asc"},
         ],
-        "limit": 10,
+        # Deliberately uncapped. FR-14.6 requires a top-10 *dashboard section*,
+        # which the dashboard endpoint now slices for itself; carrying that cap
+        # in the preset also truncated the screener, where the same setup on a
+        # name ranked 18th is a result the user asked to see, not noise. The
+        # ordering above still puts the strongest candidates first.
     },
     APPROACHING_HIGH: {
         "name": APPROACHING_HIGH,
