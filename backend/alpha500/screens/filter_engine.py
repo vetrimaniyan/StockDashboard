@@ -190,6 +190,22 @@ def run_screen(
     definition: dict[str, Any],
     as_of: date,
 ) -> list[dict[str, Any]]:
+    """The rows a screen returns, after its own limit is applied."""
+    return run_screen_counted(conn, definition, as_of)[0]
+
+
+def run_screen_counted(
+    conn: duckdb.DuckDBPyConnection,
+    definition: dict[str, Any],
+    as_of: date,
+) -> tuple[list[dict[str, Any]], int]:
+    """Rows plus how many passed the filters before ``limit`` truncated them.
+
+    A screen that returns exactly its limit is indistinguishable from one that
+    happened to match that many, and the two mean very different things: the
+    first is a view onto a longer list, the second is the whole answer. Callers
+    that show results to a person need the second number to say which it is.
+    """
     compiled = compile_screen(definition)
 
     sql = f"""
@@ -205,10 +221,13 @@ def run_screen(
     columns = [d[0] for d in cursor.description]
     rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+    # Rank clauses ("top n") are part of the filter, not the presentation, so
+    # they are counted as matches; only ``limit`` truncates.
     rows = _apply_rank_clauses(rows, compiled.rank_clauses)
+    matched = len(rows)
     if compiled.limit is not None:
         rows = rows[: compiled.limit]
-    return rows
+    return rows, matched
 
 
 def _apply_rank_clauses(
