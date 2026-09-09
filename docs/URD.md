@@ -132,7 +132,7 @@ short history or a restricted series. Size tiers: 50 Nifty 50, 50 Next 50,
 | 52-Week High Breakout | Cleared the 52w high on volume today | 50 |
 | Volatility Contraction | Tight base after an advance | 50 |
 | Pullback to Support | Uptrend resting on the 21 EMA or 50 SMA | 50 |
-| Pullback + Reversal | At support with reversal confirmation | 10 |
+| Pullback + Reversal | At support with reversal confirmation | none |
 | Approaching High | Within 3% of the period high, not yet through | 50 |
 | Fibonacci Reversal Zone | In the 50-61.8% retracement, turned today | 25 |
 | **Momentum Breakdown** | **EXIT signal for held names** | 100 |
@@ -140,6 +140,13 @@ short history or a restricted series. Size tiers: 50 Nifty 50, 50 Next 50,
 Plus **All NIFTY 500**, a universe browser rather than a screen: it is the
 only view that does not hide ineligible rows, and exists so "why is this
 stock never in my results" is answerable (FR-1.5).
+
+Pullback + Reversal is the one screen with no cap. FR-14.6 asks for a top-10
+*dashboard section*, and carrying that limit in the preset truncated the
+screener as well — a qualifying setup ranked 18th was silently absent from a
+list that read as complete. The dashboard endpoint now takes its own slice of
+ten, so the section still meets FR-14.6 while the screen lists every match.
+Where a cap does apply, the grid reports it as "top N of M matches".
 
 ### Command surface
 
@@ -742,5 +749,6 @@ already inside budget was rejected; see D-10.
 | 2026-09-07 | Sector/thematic index dashboard: range and drawdown, three-state trend, breadth, rotation metrics | FR-18.1–18.11 |
 | 2026-09-07 | B-10 resolved: index history sourced (Yahoo OHLC for 18, close-only for the rest), weights derived, `ath_*` naming withdrawn | FR-18.1, FR-18.2, FR-18.5, FR-18.9 |
 | 2026-09-07 | Sector index universe, series ingestion, range and drawdown, three-state trend, and the first view | FR-18.1–18.4, FR-18.10 |
+| 2026-09-09 | Screens report their pre-limit match count and the grid shows it; Pullback + Reversal uncapped, its top-10 slice moved into the dashboard section | FR-7.x, FR-14.6 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
