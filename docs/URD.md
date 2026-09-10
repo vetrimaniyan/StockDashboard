@@ -756,5 +756,7 @@ already inside budget was rejected; see D-10.
 | 2026-09-09 | NSE DUMMY placeholder constituents filtered out; `alpha500 universe` now writes to the change log the way the pipeline does | FR-1.2, FR-1.4 |
 | 2026-09-09 | Swing-trade tiered trailing-stop exit rule with re-entry cooldown, opt-in on the backtest engine; Phase 2 dashboard screen specified but gated on backtest proof | FR-19.1-19.8 |
 | 2026-09-09 | FR-19.4 gate run: all four configurations fail. Phase 2 stays blocked. Survivorship warning repaired after one stray membership interval silenced it | FR-19.4 |
+| 2026-09-10 | `materialise` fixed for bulk ranges (index dropped around the rewrite); history re-materialised from 2019 so FR-17 columns span the backtest window | FR-5.4, FR-17 |
+| 2026-09-10 | FR-19.4 gate re-run on the complete history: still fails on all four. Fibonacci arm re-diagnosed - one signal in seven years, from the trend gates and the retracement band rarely holding at once | FR-19.4 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
