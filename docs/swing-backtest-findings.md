@@ -259,11 +259,12 @@ Not recommendations to act on, only the questions the data raises:
    not here: whether `in_fib_zone` at 1.4% of eligible rows and the reversal bar
    at 3.2% of those are the intended strictness, and whether `rs_rating >= 70`
    should stand inside a deep pullback.
-3. **Open question Q-4 is still unanswered** and these runs assume one reading:
-   the cooldown applies to time-exits as well as stops. Given the cooldown moved
-   trade count by less than 1% either way, resolving it will not change the
-   verdict, but it should be resolved before anyone quotes these numbers as the
-   tested configuration.
+3. **Q-4 is resolved and the runs above are the tested configuration.** The
+   cooldown applies to any exit under this rule, time exits included, because
+   FR-19.2 fires the time branch only on a position that is flat or losing:
+   **42 of 42 time exits across both runs were losses**. A different question
+   fell out of the same count and is filed as Q-5 — 449 of 1,675 exits were
+   *profitable* stop-outs, which the cooldown also stands down.
 
 ## Reproducing
 

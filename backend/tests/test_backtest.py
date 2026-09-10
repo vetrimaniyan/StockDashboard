@@ -514,6 +514,39 @@ def test_no_cooldown_reopens_the_same_session_it_exited():
     assert _entry_exit_slots(sessions, closed)[:3] == [(1, 2), (2, 3), (3, 4)]
 
 
+def test_a_time_exit_also_starts_the_cooldown():
+    """FR-19.8, Q-4 resolved: any exit counts, not only a stop-out.
+
+    FR-19.2 fires the time branch only on a position that is flat or losing,
+    so a time exit is a failed setup by construction - 42 of 42 across the
+    gate runs were losses. Exempting them would re-admit a name that had just
+    spent its whole holding limit failing to get into profit.
+
+    Price here sits flat at the entry price and never reaches the stop, so the
+    only way out is the clock.
+    """
+    sessions = _sessions(40)
+    closes = [100.0] * len(sessions)
+    panel = _panel_from(closes, support=90.0, atr=1.0)
+
+    config = _tiered_config(
+        sessions,
+        max_holding_days=5,
+        time_stop_only_if_not_profitable=True,
+        reentry_cooldown_sessions=10,
+    )
+    _curve, closed, _exposure = _run(config, sessions, panel)
+
+    # Entered at 1 and timed out at 5, then held down until 15, and again.
+    # Asserted as exact slots so the test cannot pass by never re-entering.
+    assert _entry_exit_slots(sessions, closed) == [(1, 5), (15, 20), (30, 35)]
+    assert all(t.exit_reason == "time" for t in closed)
+    for (_prev, exit_slot), (entry_slot, _e) in zip(closed_slots := _entry_exit_slots(
+        sessions, closed
+    ), closed_slots[1:]):
+        assert entry_slot - exit_slot == 10
+
+
 def test_cooldown_is_inert_under_atr_trailing():
     """Structurally guaranteed by the `tiered` guard; asserted anyway."""
     sessions = _sessions(40)

@@ -556,7 +556,12 @@ def _simulate(
             closed.append(trade)
             del open_trades[token]
             if tiered and config.reentry_cooldown_sessions is not None:
-                # Any exit counts, stop or time. See Q-4 in the FR-19 addendum.
+                # Any exit counts, stop or time (FR-19.8, Q-4 resolved
+                # 2026-09-10). FR-19.2 only fires the time branch when the
+                # position is flat or losing, so a time exit is a failed setup
+                # by construction - 42 of 42 across the gate runs were losses.
+                # Exempting them would re-admit a name that had just spent 21
+                # sessions never getting into profit.
                 last_exit_slot[token] = slot
 
         # ---- entries: yesterday's signal, filled at today's open ---------

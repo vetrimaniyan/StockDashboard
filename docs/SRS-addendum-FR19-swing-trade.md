@@ -1170,12 +1170,29 @@ values — this addendum does not invent numbers for that.
 
 | # | Question | Owner | Needed by |
 |---|---|---|---|
+| Q-5 | The cooldown stands a token down after a *profitable* stop-out as readily as a losing one — 449 of 1,675 exits in the gate runs. Should a setup that paid out be stood down at all? Raised by Q-4's resolution; no run isolates it | Operator | Only if a swing screen is revived |
 | Q-2 | Position sizing real values (Decision 5, FR-19.7) | Operator | Before Phase 2, not before Phase 1 |
 | Q-3 | If more than one of the four FR-19.4 runs passes the gate, which becomes the one dashboard screen — best CAGR, best Sharpe, most trades (statistical confidence), or does each become its own screen? | Operator | After FR-19.4's results exist, not before |
-| Q-4 | FR-19.8 applies the cooldown to time-exits as well as stops (stated interpretation, not an operator confirmation). If time-exits were meant to be exempt, the guard's `tiered and ...` condition needs narrowing to `reason == "stop"` specifically before FR-19.4 runs, since it changes which trades are eligible to re-enter | Operator | Before FR-19.4's runs |
+| Q-4 | ~~FR-19.8 applies the cooldown to time-exits as well as stops~~ | **Resolved 2026-09-10** | — |
 
 *(Q-1, the original re-entry-cooldown open question, is resolved as
 FR-19.8 above and removed from this table.)*
+
+**Q-4, as resolved.** The interpretation stands: the cooldown applies to any
+exit under this rule, time exits included. It is not a judgement call, because
+FR-19.2 decides it. With `time_stop_only_if_not_profitable` set - which
+FR-19.4's runs require - the time branch fires only when the position is flat
+or losing, so a time exit is a failed setup by construction. Measured across
+both Pullback runs, **42 of 42 time exits were losses, none profitable**.
+Exempting them would re-admit a name that had just spent 21 sessions failing
+to get into profit, which is the opposite of what the cooldown is for.
+
+The case that *is* debatable turns out to be a different one, and the same
+numbers surface it: 449 of 1,675 exits were **profitable** stop-outs, where the
+trail fired after a gain. The cooldown blocks those re-entries too. Whether a
+name that just paid out should be stood down for 21 sessions is a real
+question, but it is not Q-4 and no run to date isolates it. Filed as Q-5
+rather than folded into this answer.
 
 ## 9. Change log entry (append to URD.md §9 once merged)
 
