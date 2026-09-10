@@ -291,6 +291,40 @@ def test_engine_fingerprint_tracks_source_changes(tmp_path):
     assert fp.engine_fingerprint() == original
 
 
+def test_engine_fingerprint_ignores_line_endings(tmp_path):
+    """A checkout must not look like an engine change.
+
+    The repo sets `eol=lf`; Windows clones run `core.autocrlf=true`. A plain
+    `git checkout` therefore rewrites every engine source without changing a
+    statement. Hashing raw bytes made that indistinguishable from an edit, and
+    on 2026-09-10 a branch switch after a merge put the dashboard into a
+    staleness warning claiming the served rankings were not reproducible - from
+    code that was byte-for-byte what produced them.
+
+    A staleness signal that cries wolf after an ordinary checkout teaches
+    people to ignore the one warning this project most needs believed.
+    """
+    from alpha500.metrics import fingerprint as fp
+
+    original = fp.engine_fingerprint()
+    target = fp._DIR / "kernels.py"
+    saved = target.read_bytes()
+    try:
+        as_lf = saved.replace(b"\r\n", b"\n")
+        as_crlf = as_lf.replace(b"\n", b"\r\n")
+        assert as_lf != as_crlf, "fixture no longer exercises both endings"
+
+        target.write_bytes(as_lf)
+        lf_digest = fp.engine_fingerprint()
+        target.write_bytes(as_crlf)
+        crlf_digest = fp.engine_fingerprint()
+    finally:
+        target.write_bytes(saved)
+
+    assert lf_digest == crlf_digest, "line endings alone moved the fingerprint"
+    assert fp.engine_fingerprint() == original
+
+
 def test_recomputation_is_deterministic(conn, universe):
     """Acceptance criterion 5, and AR-4.
 

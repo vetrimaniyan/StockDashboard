@@ -18,18 +18,30 @@ cancelling one.
 | Backfill and incremental ingest | 8-year history; nightly bhavcopy + delivery |
 | Corporate actions (FR-3.x) | Splits/bonuses, per-source adjustment, reconciliation gate |
 | Validation gate (FR-4.1) | All nine checks, Block/Warn severities |
-| Metric engine (§5) | Full metric set, 34 hand-computed unit tests |
-| Screener (§6) | Filter compiler, six presets, breadth, market regime |
-| API (§2.3) | Dashboard, screens, stock detail, metric definitions, exports |
-| Frontend (§7) | Dashboard, virtualised grid, stock detail with charts |
-| Exports (§8) | xlsx, csv, html, all with provenance |
+| Metric engine (§5) | **101 metrics**, expected values computed by hand in the tests |
+| Screener (§6) | Filter compiler, **nine screens** plus a universe browser, breadth, market regime |
+| Scheduling (FR-5.1) | In-process APScheduler, 18:45 IST, started at logon by a Windows task |
+| API (§2.3) | 16 endpoints — dashboard, screens, stock detail, exports, index valuations, sectors |
+| Frontend (§7) | Dashboard, virtualised grid, stock detail with charts, sector view |
+| Exports (§8) | xlsx, csv, html, all with provenance; refreshed nightly |
 | Risk and tax (§9, §11.2) | Stops, cash-only sizing, round-trip cost with TDS |
+| Backtesting (Phase 3) | Engine, walk-forward, two exit rules; survivorship-limited — see below |
+| Index valuations & sector indices (FR-18) | P/E against own history; 24 tracked indices, range and trend |
+| Backups | Both stores snapshotted nightly, verified before they are kept |
 
-Not yet built: watchlist, trade journal, notification digest, scheduler
-wiring, backtesting (Phase 3).
+**Not yet built:** watchlist, trade journal, notification digest, and
+FR-18.5–18.9 (sector breadth, relative strength, breadth thrust, concentration).
+FR-19.5–19.7 — the swing-trade dashboard screen — is specified and deliberately
+blocked; see [docs/swing-backtest-findings.md](docs/swing-backtest-findings.md).
 
 Data sources deviate from the SRS — Kite Connect is a paid subscription this
 deployment does not hold. See [DECISIONS.md](DECISIONS.md), D-1.
+
+**Backtest results are survivorship-biased and say so.** `index_membership`
+cannot reconstruct the past universe, so every absolute figure the backtest
+produces is inflated by an unknown amount. Only relative comparisons over the
+same window are trustworthy, and the engine prints that warning above its
+results rather than below them.
 
 ---
 
@@ -124,6 +136,24 @@ Override with `--at HH:MM`, always in IST regardless of the host's timezone.
 The next fire time is printed at startup, so an armed schedule is verifiable
 rather than assumed.
 
+In normal operation you should not start it by hand at all. A Windows
+Scheduled Task named **Alpha500 API** runs it at logon, and that is the
+supported way to bring it back up:
+
+```bash
+powershell -Command "Start-ScheduledTask -TaskName 'Alpha500 API'"
+```
+
+A server started from a terminal that later closes dies with it — silently,
+possibly hours later, leaving nothing to run that night. Confirm either way:
+
+```bash
+.venv/Scripts/python scripts/scheduler_status.py
+```
+
+That prints whether the API is up and whether the scheduler is armed as two
+separate facts, because a process answering on the port proves only the first.
+
 Note for a host outside India: `TZ=Asia/Kolkata date` under Git Bash on Windows
 does not apply the timezone and silently reports UTC. Use Python's `zoneinfo`
 to check IST — that is what the scheduler itself uses.
@@ -140,9 +170,10 @@ cd frontend && npm run dev
 .venv/Scripts/python -m pytest backend/tests -q
 ```
 
-Every formula in SRS section 5 has a test whose expected value was computed by
-hand and documented in the test (NFR-5.1). Recording current output instead
-would let a metric bug pass through unchanged — risk R-5, rated Critical.
+334 tests. Every formula in SRS section 5 has one whose expected value was
+computed by hand and documented in the test (NFR-5.1). Recording current output
+instead would let a metric bug pass through unchanged — risk R-5, rated
+Critical.
 
 ---
 
@@ -178,13 +209,18 @@ held out for insufficient history, thin liquidity or a restricted series.
 ```
 backend/alpha500/
   providers/    AR-1 boundary. The only package that talks to a data vendor.
-  db/           DuckDB (analytical) and SQLite (user data) schemas and stores.
+  db/           DuckDB (analytical) and SQLite (user data) schemas, stores, backups.
   metrics/      kernels -> series -> cross_section -> engine, plus the registry.
   pipeline/     Ingestion, corporate-action adjustment, validation, runner.
   screens/      Filter compiler and preset definitions.
+  backtest/     Point-in-time simulation, statistics, walk-forward.
+  mktcal/       Trading calendar.
+  tools/        Generators for METRICS.md and the operator manual.
   api/          FastAPI service layer.
 frontend/src/   React SPA.
-data/           Databases. Rebuildable, gitignored.
+scripts/        Start the API at logon; check the scheduler; ad-hoc backtests.
+docs/           Requirements, operator manual, runbook, backtest findings.
+data/           Databases and backups. Gitignored.
 ```
 
 Two databases, deliberately separate: a full price rebuild must never put
@@ -200,8 +236,30 @@ watchlists or the journal at risk.
   entry candidates on the dashboard. This is required (FR-7.6), not stylistic —
   momentum tools bias heavily toward finding entries.
 - **The exit screen is not a short list.** NRI accounts cannot short (FR-12.2).
-- **DuckDB allows one writer or many readers.** Do not run the CLI pipeline
-  while the API is serving; see DECISIONS.md, D-6.
+- **DuckDB allows one writer or many readers.** Do not run the CLI pipeline,
+  a backfill, `materialise`, or a backtest while the API is serving; stop it
+  first. See DECISIONS.md, D-6.
+- **A capped screen says so.** Where a screen returns fewer rows than it
+  matched, the grid reads "top 100 of 277 matches". Without that line, the list
+  in front of you is the whole answer rather than a slice of one.
+- **Served metrics are stamped with the engine build that produced them.**
+  Editing the metric engine without recomputing leaves numbers no version of
+  the code would now produce, which nothing else notices. `/api/status` reports
+  it and `alpha500 rebuild` clears it.
 - **Nothing here is tax advice.** The section 11 calculators use configurable
   placeholder rates that must be confirmed with a cross-border CA and a French
   *conseiller fiscal* before being relied on (open items B-5, B-6).
+
+---
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [docs/OPERATOR-MANUAL.html](docs/OPERATOR-MANUAL.html) | Using the dashboard. Generated from the registry and presets, so it cannot drift from the code. |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | When something is down or stale. Layered, and ends with a recovery checklist. |
+| [docs/URD.md](docs/URD.md) | Requirement ledger, what exists today, change log. |
+| [METRICS.md](METRICS.md) | Every formula, generated from the registry. |
+| [DECISIONS.md](DECISIONS.md) | Why the build deviates where it does, and what is still open. |
+| [docs/backtest-findings.md](docs/backtest-findings.md) | Momentum Leaders vs Pullback + Reversal. |
+| [docs/swing-backtest-findings.md](docs/swing-backtest-findings.md) | The FR-19 swing exit rule, and why its gate failed. |
