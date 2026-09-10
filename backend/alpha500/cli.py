@@ -164,6 +164,19 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         print(f"Unknown screen {args.screen!r}. Available: {', '.join(PRESETS)}")
         return 1
 
+    tiered = args.exit_rule == "tiered_trailing"
+    # FR-19 Decision 3: a trailing stop and a signal-driven exit are two
+    # different philosophies, and combining them makes the result impossible
+    # to attribute to either. Rejected rather than ignored - a flag that is
+    # silently dropped is worse than one that is refused.
+    if tiered and args.use_exit_screen:
+        print(
+            "--use-exit-screen cannot be combined with --exit-rule "
+            "tiered_trailing: the tiered stop is the only exit under that "
+            "rule, and running both would leave the result unattributable."
+        )
+        return 1
+
     with analytical(read_only=True) as conn:
         bounds = conn.execute(
             "SELECT min(trade_date), max(trade_date) FROM metrics_daily"
@@ -185,17 +198,32 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             max_positions=args.max_positions,
             stop_atr_multiple=args.stop,
             trailing_stop=args.trailing,
+            max_holding_days=args.max_holding_days,
+            exit_rule=args.exit_rule,
+            initial_stop_atr_multiple=args.initial_stop_atr,
+            stage1_arm_pct=args.stage1_arm,
+            stage1_giveback_pct=args.stage1_giveback,
+            stage2_arm_pct=args.stage2_arm,
+            stage2_giveback_pct=args.stage2_giveback,
+            time_stop_only_if_not_profitable=args.time_stop_conditional,
+            reentry_cooldown_sessions=args.reentry_cooldown_sessions,
         )
+
+        # Sweeping the ATR multiple under the tiered rule would move a field
+        # that rule never reads, producing a flat line that reads as a
+        # plateau. Sweep the parameter that is actually live instead.
+        swept_field = "stage1_giveback_pct" if tiered else "stop_atr_multiple"
+        swept_default = "0.02,0.03,0.04,0.05,0.06" if tiered else "1.5,2.0,2.5,3.0,4.0"
 
         result = run_backtest(conn, config)
         _print_backtest(args.screen, result)
 
         if args.sweep:
             values = [float(v) for v in args.sweep.split(",")]
-            print("\nATR stop sweep")
+            print(f"\nSweep over {swept_field}")
             verdict = sweep(
                 conn, config, values,
-                lambda cfg, value: dataclasses.replace(cfg, stop_atr_multiple=value),
+                lambda cfg, value: dataclasses.replace(cfg, **{swept_field: value}),
             )
             for point in verdict.points:
                 print(
@@ -209,11 +237,11 @@ def cmd_backtest(args: argparse.Namespace) -> int:
                 print(f"\n  {verdict.warning}")
 
         if args.walk_forward:
-            values = [float(v) for v in (args.sweep or "1.5,2.0,2.5,3.0,4.0").split(",")]
-            print("\nWalk-forward")
+            values = [float(v) for v in (args.sweep or swept_default).split(",")]
+            print(f"\nWalk-forward over {swept_field}")
             wf = walk_forward(
                 conn, config, values,
-                lambda cfg, value: dataclasses.replace(cfg, stop_atr_multiple=value),
+                lambda cfg, value: dataclasses.replace(cfg, **{swept_field: value}),
             )
             for window in wf.windows:
                 print(
@@ -521,9 +549,45 @@ def main(argv: list[str] | None = None) -> int:
         help="exit on the Momentum Breakdown signal as well as the stop",
     )
     p_bt.add_argument("--sweep", default=None, metavar="1.5,2.0,2.5",
-                      help="sweep the ATR stop multiple and judge the peak")
+                      help="sweep the live stop parameter and judge the peak: the ATR multiple normally, stage1_giveback_pct under tiered_trailing")
     p_bt.add_argument("--walk-forward", action="store_true",
-                      help="choose the stop in-sample, measure it out-of-sample")
+                      help="choose the swept parameter in-sample, measure it "
+                           "out-of-sample")
+    p_bt.add_argument(
+        "--max-holding-days", type=int, default=None, metavar="N",
+        help="close a position after N calendar days; unset means no time stop",
+    )
+
+    # --- FR-19: the tiered trailing-stop exit rule -----------------------
+    # Off unless asked for by name. Leaving every default alone reproduces
+    # the engine's previous behaviour exactly.
+    p_bt.add_argument(
+        "--exit-rule", choices=["atr_trailing", "tiered_trailing"],
+        default="atr_trailing",
+        help="atr_trailing (default) is the chandelier stop; tiered_trailing "
+             "is the FR-19 swing rule, which cannot be combined with "
+             "--use-exit-screen",
+    )
+    p_bt.add_argument("--initial-stop-atr", type=float, default=0.5, metavar="K",
+                      help="tiered: stop at support_level - K * ATR14")
+    p_bt.add_argument("--stage1-arm", type=float, default=0.05, metavar="PCT",
+                      help="tiered: peak gain at which the first trail arms")
+    p_bt.add_argument("--stage1-giveback", type=float, default=0.04, metavar="PCT",
+                      help="tiered: how far below the peak the first trail sits")
+    p_bt.add_argument("--stage2-arm", type=float, default=0.10, metavar="PCT",
+                      help="tiered: peak gain at which the tighter trail arms")
+    p_bt.add_argument("--stage2-giveback", type=float, default=0.02, metavar="PCT",
+                      help="tiered: how far below the peak the tighter trail sits")
+    p_bt.add_argument(
+        "--time-stop-conditional", action="store_true",
+        help="apply --max-holding-days only to positions that are flat or "
+             "losing, leaving profitable ones to the trailing stop",
+    )
+    p_bt.add_argument(
+        "--reentry-cooldown-sessions", type=int, default=None, metavar="N",
+        help="tiered: sessions a token must wait after any exit before it may "
+             "be re-entered",
+    )
 
     p_mcap = sub.add_parser(
         "marketcap", help="fetch free-float share counts for market-cap ranking"

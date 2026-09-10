@@ -81,7 +81,8 @@ a number, a row count, a named test, a specific symbol on a specific date.>
 | FR-16.x | Operability | This document, §6 | In use |
 | FR-17.x | Fibonacci retracement zone | This document, §6 | In use |
 | FR-18.x | Sectoral and thematic indices | This document, §6 | In use |
-| **FR-19.x** | — | — | **Next free** |
+| FR-19.x | Swing trade setup | `SRS-addendum-FR19-swing-trade.md` | In use |
+| **FR-20.x** | — | — | **Next free** |
 
 Supporting series: `NFR-1` to `NFR-6` (non-functional), `AR-1` to `AR-4`
 (architecture), `D-1` to `D-11` (decisions, in `DECISIONS.md`), `B-1` to `B-11`
@@ -111,6 +112,8 @@ the endpoint count on 2026-09-07.
 | Exports (FR-9.x) | Built | xlsx, csv, html, each with provenance |
 | Risk and tax (FR-10, FR-12) | Built | Stops, cash-only sizing, TDS round-trip |
 | Backtesting (Phase 3) | Partial | Engine and walk-forward exist; see §7 |
+| Swing exit rule (FR-19.1-19.3, 19.8) | Built | Tiered trailing stop, conditional time stop, re-entry cooldown; all opt-in, 13 tests |
+| Swing dashboard screen (FR-19.5-19.7) | **Blocked** | FR-19.4's gate failed on all four runs; see `swing-backtest-findings.md` |
 | Operability (FR-16.x) | Built | Status command, troubleshooting runbook |
 | Sector indices (FR-18.1-18.4) | Partial | 24 tracked, 69,030 sessions; 18 with real OHLC, 6 close-only and reported unavailable |
 | Sector view (FR-18.10) | Partial | Range bar per index; no screen hand-off, and the sort awaits FR-18.8 |
@@ -750,5 +753,8 @@ already inside budget was rejected; see D-10.
 | 2026-09-07 | B-10 resolved: index history sourced (Yahoo OHLC for 18, close-only for the rest), weights derived, `ath_*` naming withdrawn | FR-18.1, FR-18.2, FR-18.5, FR-18.9 |
 | 2026-09-07 | Sector index universe, series ingestion, range and drawdown, three-state trend, and the first view | FR-18.1–18.4, FR-18.10 |
 | 2026-09-09 | Screens report their pre-limit match count and the grid shows it; Pullback + Reversal uncapped, its top-10 slice moved into the dashboard section | FR-7.x, FR-14.6 |
+| 2026-09-09 | NSE DUMMY placeholder constituents filtered out; `alpha500 universe` now writes to the change log the way the pipeline does | FR-1.2, FR-1.4 |
+| 2026-09-09 | Swing-trade tiered trailing-stop exit rule with re-entry cooldown, opt-in on the backtest engine; Phase 2 dashboard screen specified but gated on backtest proof | FR-19.1-19.8 |
+| 2026-09-09 | FR-19.4 gate run: all four configurations fail. Phase 2 stays blocked. Survivorship warning repaired after one stray membership interval silenced it | FR-19.4 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->

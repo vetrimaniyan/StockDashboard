@@ -15,6 +15,35 @@ The rules that matter, and why:
 
 What this engine cannot fix is stated loudly rather than hidden: see
 ``survivorship_warnings``.
+
+**FR-19 — the tiered trailing-stop exit rule.** A second stop mechanism,
+for a swing strategy that takes its profit in the 5-10% range rather than
+riding a trend for months. It is entirely opt-in: every field defaults to
+the previous behaviour, and nothing below runs unless a config sets
+``exit_rule="tiered_trailing"``. That matters because other backtests
+already depend on this engine, and this is an addition to a live system
+rather than a replacement of one.
+
+* **Initial stop**: ``support_level - initial_stop_atr_multiple * ATR14``,
+  read once at entry from the prior session — the same no-lookahead rule
+  the ATR stop already follows.
+* **Stage 1**, once peak unrealised gain reaches ``stage1_arm_pct``: the
+  stop trails ``stage1_giveback_pct`` behind the highest close-based gain
+  seen since entry.
+* **Stage 2**, past ``stage2_arm_pct``: the same, but tighter.
+* Candidates combine with ``max()``, so the stop never falls and an armed
+  stage never un-arms. There is no profit target — a trade that runs to
+  20% keeps being trailed rather than being sold at a number chosen in
+  advance.
+* **Time stop**, under ``time_stop_only_if_not_profitable``: a position
+  past ``max_holding_days`` but still in profit is left for the trail to
+  close instead of being forced out.
+* **Re-entry cooldown**, under ``reentry_cooldown_sessions``: a token that
+  exits under this rule cannot re-enter for that many sessions.
+
+The exit test itself, ``low <= trade.stop_price``, is unchanged. Only how
+``stop_price`` is set and updated differs, which is the smallest change
+that implements the rule.
 """
 
 from __future__ import annotations
@@ -48,6 +77,22 @@ class BacktestConfig:
     cost_model: CostModel = field(default_factory=CostModel)
     exit_screen: dict[str, Any] | None = None
 
+    # --- FR-19: tiered trailing-stop exit rule (opt-in) ------------------
+    # Every field below defaults to a value that reproduces the previous
+    # behaviour exactly. Nothing here is reachable unless a config asks for
+    # it by name, which is what lets this land on an engine other backtests
+    # already depend on.
+    exit_rule: str = "atr_trailing"  # "atr_trailing" (legacy) | "tiered_trailing"
+    initial_stop_atr_multiple: float = 0.5  # support_level - this * ATR14
+    stage1_arm_pct: float = 0.05
+    stage1_giveback_pct: float = 0.04
+    stage2_arm_pct: float = 0.10
+    stage2_giveback_pct: float = 0.02
+    # False preserves the unconditional time stop every existing config gets.
+    time_stop_only_if_not_profitable: bool = False
+    # None means no cooldown was ever applied (FR-19.8).
+    reentry_cooldown_sessions: int | None = None
+
 
 @dataclass(slots=True)
 class Trade:
@@ -63,6 +108,9 @@ class Trade:
     exit_reason: str | None = None
     costs: float = 0.0
     tds: float = 0.0
+    # High-water mark of close-based unrealised gain. Only tiered_trailing
+    # writes it; it stays 0.0 everywhere else.
+    peak_gain_pct: float = 0.0
 
     @property
     def holding_days(self) -> int:
@@ -95,6 +143,7 @@ class Trade:
             "exit_price": self.exit_price,
             "exit_reason": self.exit_reason,
             "holding_days": self.holding_days,
+            "peak_gain_pct": self.peak_gain_pct * 100.0,
             "gross_pnl": self.gross_pnl,
             "costs": self.costs,
             "tds": self.tds,
@@ -174,7 +223,13 @@ def signals_over_range(
 def _price_panel(
     conn: duckdb.DuckDBPyConnection, start: date, end: date
 ) -> tuple[dict[int, dict[str, np.ndarray]], dict[date, int]]:
-    """Adjusted OHLC per token, aligned to a shared session index."""
+    """Adjusted OHLC per token, aligned to a shared session index.
+
+    ``support_level`` rides along for FR-19.1's initial stop. The metric
+    engine already stores it in adjusted-price terms, so unlike the raw OHLC
+    columns it is not multiplied by ``adj_factor`` here — doing so would
+    adjust it twice.
+    """
     sessions = _sessions(conn, start, end)
     index = {day: i for i, day in enumerate(sessions)}
 
@@ -183,7 +238,7 @@ def _price_panel(
         SELECT o.instrument_token, o.trade_date,
                o.open * o.adj_factor, o.high * o.adj_factor,
                o.low * o.adj_factor, o.close * o.adj_factor,
-               m.atr_14
+               m.atr_14, m.support_level
           FROM ohlcv_daily o
           JOIN metrics_daily m
             ON m.instrument_token = o.instrument_token AND m.trade_date = o.trade_date
@@ -195,7 +250,7 @@ def _price_panel(
 
     n = len(sessions)
     panel: dict[int, dict[str, np.ndarray]] = {}
-    for token, day, op, hi, lo, cl, atr in rows:
+    for token, day, op, hi, lo, cl, atr, support in rows:
         token = int(token)
         slot = index.get(day)
         if slot is None:
@@ -203,7 +258,8 @@ def _price_panel(
         arrays = panel.get(token)
         if arrays is None:
             arrays = {
-                name: np.full(n, np.nan) for name in ("open", "high", "low", "close", "atr")
+                name: np.full(n, np.nan)
+                for name in ("open", "high", "low", "close", "atr", "support")
             }
             panel[token] = arrays
         arrays["open"][slot] = op if op is not None else np.nan
@@ -211,6 +267,7 @@ def _price_panel(
         arrays["low"][slot] = lo if lo is not None else np.nan
         arrays["close"][slot] = cl if cl is not None else np.nan
         arrays["atr"][slot] = atr if atr is not None else np.nan
+        arrays["support"][slot] = support if support is not None else np.nan
     return panel, index
 
 
@@ -266,18 +323,45 @@ def survivorship_warnings(conn: duckdb.DuckDBPyConnection) -> list[str]:
     """
     warnings: list[str] = []
     row = conn.execute(
-        "SELECT count(DISTINCT valid_from), count(*) FILTER (WHERE valid_to IS NOT NULL) "
+        "SELECT min(valid_from), count(*) FILTER (WHERE valid_to IS NOT NULL) "
         "FROM index_membership"
     ).fetchone()
-    distinct_starts, closed = (row or (0, 0))
+    earliest_membership, closed = (row or (None, 0))
+    price_row = conn.execute("SELECT min(trade_date) FROM ohlcv_daily").fetchone()
+    earliest_price = price_row[0] if price_row else None
 
-    if distinct_starts <= 1 and not closed:
+    # Two ways the universe cannot be reconstructed, and the warning has to
+    # survive both. No closed interval means no departure was ever recorded.
+    # Membership that begins after the prices do means the earlier span is
+    # being tested against today's constituent list no matter how many
+    # intervals exist.
+    #
+    # The second test replaces an earlier one that only asked whether *any*
+    # closed interval existed. That was too weak by a wide margin: on
+    # 2026-09-09 a two-day placeholder constituent arrived and left, and its
+    # single closed interval silently switched this warning off across a
+    # store holding eight years of prices behind three weeks of membership.
+    # A warning that a stray row can disable is not a warning.
+    reconstructable = (
+        closed
+        and earliest_membership is not None
+        and earliest_price is not None
+        and earliest_membership <= earliest_price
+    )
+    if not reconstructable:
+        detail = (
+            f"Membership begins {earliest_membership} but prices begin "
+            f"{earliest_price}. "
+            if earliest_membership is not None and earliest_price is not None
+            and earliest_membership > earliest_price
+            else ""
+        )
         warnings.append(
-            "SURVIVORSHIP BIAS: index_membership holds a single snapshot with no "
-            "closed intervals, so the universe cannot be reconstructed as it stood "
-            "on any past date. Every symbol tested is a *current* NIFTY 500 member; "
-            "constituents that were dropped over the period were never ingested at "
-            "all. Results are biased upward by an unknown but material amount and "
+            "SURVIVORSHIP BIAS: index_membership cannot describe the universe as "
+            f"it stood on the dates being tested. {detail}"
+            "Every symbol tested is a *current* NIFTY 500 member; constituents "
+            "that were dropped over the period were never ingested at all. "
+            "Results are biased upward by an unknown but material amount and "
             "MUST NOT be read as achievable returns."
         )
     return warnings
@@ -339,6 +423,7 @@ def _simulate(
     withhold_tax: bool,
 ) -> tuple[list[float], list[Trade], list[float]]:
     model = config.cost_model
+    tiered = config.exit_rule == "tiered_trailing"
 
     cash = config.initial_capital
     tax_paid = 0.0
@@ -346,6 +431,11 @@ def _simulate(
     closed: list[Trade] = []
     curve: list[float] = []
     exposure: list[float] = []
+    # FR-19.8. Session index of each token's last exit under the tiered rule.
+    # Kept here rather than on Trade because every other fact a cooldown check
+    # needs — which slot is current, what is open — already lives at this
+    # level, and a closed trade has no other reason to be read again.
+    last_exit_slot: dict[int, int] = {}
 
     def mark_to_market(slot: int) -> float:
         total = 0.0
@@ -405,6 +495,20 @@ def _simulate(
             elif (
                 config.max_holding_days is not None
                 and (session - trade.entry_date).days >= config.max_holding_days
+                # FR-19.2. With the flag off this is unconditionally True, so
+                # the branch behaves exactly as it did. With it on, a position
+                # still in profit past the limit is left for the trailing stop
+                # to govern rather than forced out here. The finiteness test
+                # sits inside the flag because without a price there is no
+                # profitability to judge, and falling through to the trailing
+                # update is the right answer in that case.
+                and (
+                    not config.time_stop_only_if_not_profitable
+                    or (
+                        np.isfinite(open_px)
+                        and (open_px / trade.entry_price - 1.0) <= 0.0
+                    )
+                )
             ):
                 if not np.isfinite(open_px):
                     continue
@@ -412,7 +516,26 @@ def _simulate(
                 reason = "time"
 
             if reason is None or fill is None:
-                if config.trailing_stop and np.isfinite(arrays["atr"][slot]):
+                if tiered:
+                    # Candidates are combined with max(), so the stop only ever
+                    # ratchets up and a stage that has armed cannot un-arm when
+                    # price falls back below its threshold.
+                    gain_pct = close_px / trade.entry_price - 1.0
+                    if gain_pct > trade.peak_gain_pct:
+                        trade.peak_gain_pct = gain_pct
+                    candidates = [trade.stop_price]
+                    if trade.peak_gain_pct >= config.stage1_arm_pct:
+                        candidates.append(
+                            trade.entry_price
+                            * (1.0 + trade.peak_gain_pct - config.stage1_giveback_pct)
+                        )
+                    if trade.peak_gain_pct >= config.stage2_arm_pct:
+                        candidates.append(
+                            trade.entry_price
+                            * (1.0 + trade.peak_gain_pct - config.stage2_giveback_pct)
+                        )
+                    trade.stop_price = max(candidates)
+                elif config.trailing_stop and np.isfinite(arrays["atr"][slot]):
                     trailed = close_px - config.stop_atr_multiple * arrays["atr"][slot]
                     trade.stop_price = max(trade.stop_price, trailed)
                 continue
@@ -432,6 +555,9 @@ def _simulate(
             tax_paid += trade.tds
             closed.append(trade)
             del open_trades[token]
+            if tiered and config.reentry_cooldown_sessions is not None:
+                # Any exit counts, stop or time. See Q-4 in the FR-19 addendum.
+                last_exit_slot[token] = slot
 
         # ---- entries: yesterday's signal, filled at today's open ---------
         if slot > 0 and len(open_trades) < config.max_positions:
@@ -441,16 +567,44 @@ def _simulate(
                     break
                 if token in open_trades:
                     continue
+                # FR-19.8: sessions, not calendar days, to match every other
+                # period in this engine.
+                if (
+                    tiered
+                    and config.reentry_cooldown_sessions is not None
+                    and token in last_exit_slot
+                    and (slot - last_exit_slot[token])
+                    < config.reentry_cooldown_sessions
+                ):
+                    continue
                 arrays = panel.get(token)
                 if arrays is None:
                     continue
                 open_px = arrays["open"][slot]
                 atr = arrays["atr"][slot - 1]
-                if not np.isfinite(open_px) or open_px <= 0 or not np.isfinite(atr):
-                    continue
 
-                fill_price = open_px * (1.0 + config.slippage_pct)
-                stop = fill_price - config.stop_atr_multiple * atr
+                if tiered:
+                    # FR-19.1: the stop is anchored to the support level the
+                    # entry was taken at, not to the fill. A signal with no
+                    # support level opens no trade rather than silently
+                    # falling back to an ATR stop, which would be a different
+                    # strategy wearing this one's name.
+                    support = arrays["support"][slot - 1]
+                    if (
+                        not np.isfinite(open_px)
+                        or open_px <= 0
+                        or not np.isfinite(atr)
+                        or not np.isfinite(support)
+                    ):
+                        continue
+                    fill_price = open_px * (1.0 + config.slippage_pct)
+                    stop = support - config.initial_stop_atr_multiple * atr
+                else:
+                    if not np.isfinite(open_px) or open_px <= 0 or not np.isfinite(atr):
+                        continue
+                    fill_price = open_px * (1.0 + config.slippage_pct)
+                    stop = fill_price - config.stop_atr_multiple * atr
+
                 if stop <= 0 or stop >= fill_price:
                     continue
 
