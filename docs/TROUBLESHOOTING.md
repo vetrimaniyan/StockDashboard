@@ -243,9 +243,42 @@ c.close()
 Then re-run the metrics for the affected date. Nothing is lost: the failed
 transaction rolls back, and the row counts are unchanged by the repair.
 
-Take a copy of the `.duckdb` file before the repair. It is a single file and
-the copy is the whole backup — `backup_app_db` covers `app.sqlite` only, so
-the analytical store has no nightly snapshot behind it.
+Take a copy of the `.duckdb` file before the repair — or use the nightly one.
+Since 2026-09-09 the pipeline snapshots the analytical store as well, three
+copies deep, in `data/backups/alpha500-*.duckdb`.
+
+**The same fault, on `materialise`.** Seen 2026-09-10, and worth reading
+separately because it costs far more time and reports itself far worse:
+
+```
+File "backend/alpha500/metrics/history.py", line 281, in materialise_history
+    conn.execute("DELETE FROM metrics_daily WHERE trade_date BETWEEN ? AND ?", ...)
+_duckdb.FatalException: FATAL Error: Invalid Input Error:
+Failed to delete all rows from index. Only deleted 601 out of 1052 rows.
+```
+
+Pass 2 opens by clearing the range it is about to rewrite, and that delete goes
+through the same index. It fails *after* pass 1 has spent minutes staging every
+symbol, so the cost of the failure is the whole run.
+
+`materialise_history` now drops `idx_metrics_date_rank` before the rewrite and
+rebuilds it in a `finally`, so this particular path should not recur. If you
+meet it anyway, the repair above applies unchanged.
+
+Two things the crash leaves behind, because the exception is FATAL and skips
+the cleanup at the end of pass 2:
+
+- a `metrics_stage` table, and its `idx_stage_date` index — `DROP TABLE IF
+  EXISTS metrics_stage` clears both;
+- the range it was rewriting, still holding the *old* metrics. The delete never
+  committed, so nothing is lost, but nothing is updated either. Re-run the
+  range.
+
+**A note on diagnosing it.** DuckDB prints the offending chunk to stderr — a
+hundred-odd lines of `CONSTANT DOUBLE: 1052 = [ NULL]`, one per column — and
+the sentence naming the error comes *first*, above all of it. Capture the whole
+stream. Piping the run through `tail` keeps the chunk dump and throws away the
+only line that says what went wrong.
 
 ### Stale banner on a non-trading day
 

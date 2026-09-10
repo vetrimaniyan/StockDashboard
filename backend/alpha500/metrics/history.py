@@ -278,22 +278,49 @@ def materialise_history(
     stamp = datetime.now(timezone.utc)
     fingerprint = engine_fingerprint()
 
-    conn.execute("DELETE FROM metrics_daily WHERE trade_date BETWEEN ? AND ?", [start, end])
-    conn.execute("DELETE FROM metrics_meta WHERE trade_date BETWEEN ? AND ?", [start, end])
-
-    for position, session in enumerate(sessions, start=1):
-        rows = _cross_section_for_date(
-            conn, session, symbol_of, series_of, index_returns
+    # The range delete below goes through idx_metrics_date_rank, and DuckDB's
+    # ART index cannot always service one:
+    #
+    #   FATAL Error: Invalid Input Error: Failed to delete all rows from
+    #   index. Only deleted 601 out of 1052 rows.
+    #
+    # It is FATAL in DuckDB's sense, so it kills the connection and takes the
+    # whole run with it after however many minutes pass 1 took. The index is
+    # derived and holds nothing the table does not, so the rewrite drops it and
+    # builds it back afterwards. That sidesteps the fault and is faster besides:
+    # rebuilding once beats maintaining it across a delete of every row in the
+    # range plus an insert of every row back.
+    #
+    # try/finally, because a run that dies partway must not leave the store
+    # without the index the screener sorts on. Rebuilding took 0.2s on 845k
+    # rows, so this costs nothing worth measuring.
+    conn.execute("DROP INDEX IF EXISTS idx_metrics_date_rank")
+    try:
+        conn.execute(
+            "DELETE FROM metrics_daily WHERE trade_date BETWEEN ? AND ?", [start, end]
         )
-        if rows:
-            _bulk_write(conn, rows)
-            conn.execute(
-                "INSERT INTO metrics_meta VALUES (?,?,?,?)",
-                [session, fingerprint, stamp, len(rows["instrument_token"])],
+        conn.execute(
+            "DELETE FROM metrics_meta WHERE trade_date BETWEEN ? AND ?", [start, end]
+        )
+
+        for position, session in enumerate(sessions, start=1):
+            rows = _cross_section_for_date(
+                conn, session, symbol_of, series_of, index_returns
             )
-            written += len(rows["instrument_token"])
-        if position % 100 == 0:
-            say(f"  {position}/{len(sessions)} sessions, {written:,} rows")
+            if rows:
+                _bulk_write(conn, rows)
+                conn.execute(
+                    "INSERT INTO metrics_meta VALUES (?,?,?,?)",
+                    [session, fingerprint, stamp, len(rows["instrument_token"])],
+                )
+                written += len(rows["instrument_token"])
+            if position % 100 == 0:
+                say(f"  {position}/{len(sessions)} sessions, {written:,} rows")
+    finally:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_metrics_date_rank "
+            "ON metrics_daily (trade_date, momentum_rank)"
+        )
 
     conn.execute(f"DROP TABLE IF EXISTS {STAGE_TABLE}")
     say(f"done: {written:,} metric rows across {len(sessions)} sessions")
