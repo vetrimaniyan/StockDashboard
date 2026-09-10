@@ -150,6 +150,19 @@ ENTRY_COUNT_WORD = _word(len(_ENTRY_SCREENS)).capitalize()
 EXIT_COUNT_WORD = _word(len(_EXIT_SCREENS))
 
 
+def shows(spec) -> str:
+    """How many rows a screen returns.
+
+    A screen with no limit returns everything it matched, and saying "up to
+    all rows" obscures the one thing a reader wants to know: whether the list
+    in front of them is complete.
+    """
+    limit = spec.get("limit")
+    if limit is None:
+        return "every match, uncapped"
+    return f"up to {limit} rows, highest-ranked first"
+
+
 def render_conditions(node, depth=0):
     if "conditions" not in node:
         return ""
@@ -183,7 +196,7 @@ for name, spec in PRESETS.items():
         f'<div class="plogic"><span class="plabel">Passes when</span>'
         f'<ul>{render_conditions(spec.get("filters", {}))}</ul></div>'
         f'<div class="pmeta"><span><span class="plabel">Sorted by</span> {esc(sort)}</span>'
-        f'<span><span class="plabel">Shows</span> up to {spec.get("limit","all")} rows</span></div>'
+        f'<span><span class="plabel">Shows</span> {shows(spec)}</span></div>'
         f"</div>"
     )
 
@@ -387,9 +400,12 @@ footer code{{font-family:var(--mono);background:var(--surface-2);padding:1px 5px
   <div class="card">
     <span class="tab-num">Tab 2</span>
     <h3>Screener — “show me every stock matching these conditions”</h3>
-    <p>Pick one of seven built-in screens, then narrow further with your own filters. The
-    grid is fully sortable and its columns are yours to choose and reorder. Export to Excel,
-    CSV or a self-contained HTML file.</p>
+    <p>Pick one of the {SCREEN_COUNT_WORD} built-in screens, then narrow further with your
+    own filters. The grid is fully sortable and its columns are yours to choose and reorder.
+    Export to Excel, CSV or a self-contained HTML file.</p>
+    <p>Where a screen caps its results, the grid says so above the table —
+    <em>“top 100 of 277 matches”</em>. Without that line the list in front of you is the
+    whole answer, not a slice of one.</p>
   </div>
 
   <div class="card">

@@ -81,6 +81,21 @@ which is block-buffered when redirected to a file. Its absence from a log is
 not evidence the scheduler failed to arm; confirm with the status script
 instead of reading the log.
 
+**Start it through the scheduled task, not from a shell you are about to
+close.** `start_api.ps1` uses `Start-Process`, which normally detaches, but a
+server launched from inside an editor terminal, an agent session, or any host
+that reaps its process tree dies when that host goes away — silently, and
+possibly hours later, leaving `Scheduler armed: NO` and no run that night.
+Observed repeatedly on 2026-09-09. The task runs under Task Scheduler's own
+tree and survives:
+
+```bash
+powershell -Command "Start-ScheduledTask -TaskName 'Alpha500 API'"
+```
+
+Always confirm with the status script afterwards rather than assuming the
+launch held.
+
 ### The API starts, then exits immediately
 
 Almost always the DuckDB single-writer rule (DECISIONS.md, D-6). A CLI
@@ -368,11 +383,51 @@ loopback-only.
 
 ---
 
+## Restoring the analytical store
+
+`data/alpha500.duckdb` is rebuildable from a backfill, but rebuilding costs
+hours of vendor requests and assumes those vendors still serve today's depth.
+One table cannot be rebuilt at all: `quarantined_rows` records validation
+events tied to the run that found them. Since 2026-09-09 the pipeline
+snapshots it nightly, three copies deep, as
+`data/backups/alpha500-YYYYmmdd-HHMMSS-NN.duckdb`.
+
+Take one on demand — the API must be stopped, since DuckDB allows one writer
+per file across the machine and the snapshot borrows that writer:
+
+```bash
+.venv/Scripts/python -m alpha500.cli backup --analytical
+```
+
+Roughly 1 GB and about 8 seconds. The copy is verified before it is kept, and
+deleted rather than retained if verification fails: a backup that restores to
+a broken database is worse than none, because it is trusted.
+
+To restore, stop the API, keep the current file, then swap:
+
+```bash
+cp data/alpha500.duckdb data/alpha500.duckdb.before-restore
+```
+
+```bash
+cp data/backups/alpha500-YYYYmmdd-HHMMSS-NN.duckdb data/alpha500.duckdb
+```
+
+Check what you are restoring first — the metric range is the quickest way to
+tell one snapshot from another:
+
+```bash
+.venv/Scripts/python -c "import duckdb; c=duckdb.connect(r'data/backups/alpha500-YYYYmmdd-HHMMSS-NN.duckdb', read_only=True); print(c.execute('select min(trade_date), max(trade_date), count(*) from metrics_daily').fetchone())"
+```
+
+A restored snapshot is behind by however many sessions have run since. Re-run
+the pipeline for each, or `materialise` the range, and the store catches up.
+
 ## Restoring the user store
 
-`data/alpha500.duckdb` is rebuildable from a backfill. `data/app.sqlite` is
-not — the watchlist, journal, saved screens and weight profiles exist nowhere
-else, which is why the two databases are separate in the first place.
+`data/app.sqlite` cannot be rebuilt from anything — the watchlist, journal,
+saved screens and weight profiles exist nowhere else, which is why the two
+databases are separate in the first place.
 
 The pipeline snapshots it as its last stage, and you can take one any time:
 
@@ -417,9 +472,18 @@ GitHub remote is for code.
 ## Recovery, in order
 
 1. `scripts/scheduler_status.py` — decide which layer is at fault.
-2. API down → start `serve --with-scheduler`. Dashboard returns immediately,
-   serving the last good session with a stale banner. **This restores the UI
-   without touching data.**
+2. API down → start it through the **Alpha500 API** scheduled task, not from a
+   shell you are about to close. Dashboard returns immediately, serving the
+   last good session with a stale banner. **This restores the UI without
+   touching data.**
 3. Data stale → stop the API, run `pipeline`, restart.
 4. Pipeline fails again → read the `message` on the `FAILED` stage. That
    column carries the actual exception; it is the fastest route to a cause.
+5. Store itself suspect → restore the newest verified snapshot (§Restoring the
+   analytical store), then re-run the sessions it is behind. Take a copy of the
+   live file first; a snapshot that turns out to be older than you thought is
+   only recoverable if you kept what it replaced.
+
+**Capture whole logs, not tails.** DuckDB reports its worst failures by
+printing a chunk dump of a hundred-odd lines *after* the sentence naming the
+error. Piping a run through `tail` keeps the dump and discards the diagnosis.
