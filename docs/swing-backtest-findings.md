@@ -160,9 +160,32 @@ gates are set. The real cliffs are elsewhere: `in_fib_zone` admits 8,897 of
 642,952 eligible rows (1.4%), and of those only 282 carry a reversal bar (3.2%),
 which the volume shape then takes to 84 and the reward:risk floor to 56.
 
-`rs_rating >= 70` is the same tension in milder form — a deep pullback depresses
-the 3-month leg of the rating. It is left at 70 deliberately: relaxing it is a
-decision about what the screen is *for*, not a contradiction to repair.
+### The RS floor was tested, and stays (2026-09-10)
+
+`rs_rating >= 70` looked like the same contradiction in milder form: inside the
+zone it holds on 9.9% of rows against 30.3% of all eligible rows. It is not.
+
+The pullback does depress the rating, but only slightly — the same names read a
+median RS of **31** sixty sessions before entering the zone and **24** on the
+zone day. And the gate earns what it costs. Forward 21-session return measured
+from every zone day over the window:
+
+| Band | n | Median | Mean | Positive |
+|---|---|---|---|---|
+| **RS ≥ 70** | 884 | **+2.35%** | **+4.18%** | **58.1%** |
+| RS 50-69 | 1,052 | +1.33% | +0.76% | 54.0% |
+| RS < 50 | 6,821 | +1.29% | +1.84% | 55.6% |
+
+Best band on every measure. Relaxing to 50 would buy two extra signals a decade
+by admitting the weaker two thirds, so the floor stays at 70.
+
+**The same measurement says something harsher about the zone itself.** Median RS
+inside it is **24**, against **50** across all eligible rows. The 50-61.8% band
+is not mostly finding strong trends pulling back; it is finding names that have
+already broken down. That reframes the reconciliation above: the trend gates and
+the band conflict not because the gates are wrong, but because most things that
+reach the band are genuinely weak. Whether the band is the right location test
+is FR-17's question to answer.
 
 This is a finding about the screen, not about the exit rule. **FR-19.4's
 Fibonacci arm cannot be answered by any exit rule**, because there is nothing to

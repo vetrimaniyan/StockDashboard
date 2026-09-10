@@ -228,14 +228,31 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
                 # this screen.
                 {"field": "is_long_term_uptrend", "operator": "=", "value": True},
                 {"field": "sma_200_slope_1m", "operator": ">", "value": 0.0},
-                # FR-17.6's own quality floor, left where it is. Inside the
-                # zone it holds on 9.9% of rows, which is the same tension in
-                # milder form - a deep pullback depresses the 3-month leg of
-                # the rating. Whether to relax it is a decision about what the
-                # screen is for, not a contradiction to be repaired, so it
-                # stays until someone decides otherwise. Measured over the
-                # window: 70 yields 2 signals, 50 yields 4, dropping it
-                # entirely yields 8.
+                # FR-17.6's quality floor. Kept at 70, and unlike the trend
+                # template above this one was tested rather than reasoned
+                # about (resolved 2026-09-10).
+                #
+                # It looked like the same contradiction: inside the zone it
+                # holds on 9.9% of rows against 30.3% of all eligible rows,
+                # and a pullback does depress the rating. But the depression
+                # is small - the same names read a median RS of 31 sixty
+                # sessions earlier and 24 on the zone day - and the gate earns
+                # its cost. Forward 21-session return from a zone day:
+                #
+                #     RS >= 70    n=884    median +2.35%   58.1% positive
+                #     RS 50-69    n=1052   median +1.33%   54.0% positive
+                #     RS < 50     n=6821   median +1.29%   55.6% positive
+                #
+                # Best band on every measure, so relaxing it to 50 would buy
+                # two extra signals a decade by admitting the weaker two
+                # thirds. It stays.
+                #
+                # The same measurement says something harsher about the zone
+                # itself: median RS inside it is 24 against 50 across all
+                # eligible rows. The 50-61.8% band is not finding strong
+                # trends pulling back so much as names that have already
+                # broken down. That is FR-17's problem to answer, not this
+                # gate's.
                 {"field": "rs_rating", "operator": ">=", "value": 70},
                 # Location.
                 {"field": "in_fib_zone", "operator": "=", "value": True},

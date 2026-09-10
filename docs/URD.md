@@ -759,5 +759,7 @@ already inside budget was rejected; see D-10.
 | 2026-09-10 | `materialise` fixed for bulk ranges (index dropped around the rewrite); history re-materialised from 2019 so FR-17 columns span the backtest window | FR-5.4, FR-17 |
 | 2026-09-10 | FR-19.4 gate re-run on the complete history: still fails on all four. Fibonacci arm re-diagnosed - one signal in seven years, from the trend gates and the retracement band rarely holding at once | FR-19.4 |
 | 2026-09-10 | FR-17 trend gates reconciled with the retracement band: the trend template reimposed close > SMA50, which the zone breaks by definition. Replaced by the SMA200 slope; `fib_funnel` brought back into step | FR-17.6, FR-17.8 |
+| 2026-09-10 | FR-19 Q-4 resolved: the re-entry cooldown covers time exits, because FR-19.2 fires that branch only on a flat or losing position. Q-5 filed on profitable stop-outs | FR-19.8 |
+| 2026-09-10 | FR-17 RS floor tested and kept at 70: best forward-return band on every measure. Recorded that the retracement band itself selects for weak names, median RS 24 against 50 | FR-17.6 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
