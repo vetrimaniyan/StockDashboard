@@ -299,3 +299,51 @@ def test_run_screen_still_returns_just_the_rows(conn):
     )
     assert isinstance(rows, list)
     assert len(rows) == 3
+
+
+# --- FR-17 trend gates vs the retracement band ---------------------------
+
+
+def test_fib_zone_screen_does_not_demand_price_above_its_averages():
+    """FR-17's own trend gate must survive the pullback it is looking for.
+
+    The metric engine keeps `is_long_term_uptrend` separate from
+    `ma_alignment` because the latter demands close > SMA50, which a
+    50-61.8% retracement normally breaks. `trend_template_score` reimposed
+    that same condition through criteria 1 and 5, so the screen asked for a
+    deep pullback and then required price not to have pulled back. Measured
+    over 2019-2026 it cut the funnel from 56 candidates to 1.
+    """
+    conditions = PRESETS["Fibonacci Reversal Zone"]["filters"]["conditions"]
+    fields = {c["field"] for c in conditions}
+
+    assert "trend_template_score" not in fields, (
+        "the trend template requires close > SMA50 and close > SMA150/200, "
+        "which is what a retracement into the zone breaks"
+    )
+    assert "ma_alignment" not in fields, "same defect, more directly"
+    # What should be there instead: structure a pullback cannot invalidate.
+    assert "is_long_term_uptrend" in fields
+    assert "sma_200_slope_1m" in fields
+
+
+def test_fib_funnel_reports_the_same_gates_the_screen_applies():
+    """A funnel that disagrees with its screen explains the wrong thing.
+
+    FR-17.8 exists so an empty grid can be told apart from a misconfigured
+    threshold, which only works while the two stay in step.
+    """
+    import inspect
+
+    from alpha500.screens import presets
+
+    source = inspect.getsource(presets.fib_funnel)
+    conditions = PRESETS["Fibonacci Reversal Zone"]["filters"]["conditions"]
+    fields = {c["field"] for c in conditions}
+
+    for field in ("is_long_term_uptrend", "sma_200_slope_1m", "rs_rating"):
+        assert field in fields
+        assert field in source, f"fib_funnel does not gate on {field}"
+    assert "trend_template_score" not in source, (
+        "fib_funnel still counts survivors against a gate the screen dropped"
+    )

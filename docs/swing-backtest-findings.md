@@ -110,15 +110,59 @@ The funnel says which gate is responsible:
 | Turned that session | 2 |
 | Reward:risk ≥ 2.0 | **1** |
 
-**The location gate and the trend gates are in tension.** 175,771 rows clear
-the trend requirements; requiring price to sit inside the retracement band as
-well cuts that by 99.8%. That is not a rare setup being rare. A retracement deep
-enough to reach the 50–61.8% zone has usually broken the trend template the
-screen simultaneously demands, so the two conditions rarely hold at once. The
-reversal-bar gate then takes 56 to 2.
+**The location gate and the trend gates were in tension**, and that has since
+been repaired — see below. It was not, however, what makes this screen
+unusable.
 
-For context, the same store holds 11,576 rows with `in_fib_zone` true across all
-years. Nearly all of them fail the trend gates.
+### The trend gates, reconciled (2026-09-10)
+
+The metric engine keeps `is_long_term_uptrend` separate from `ma_alignment`
+for a documented reason:
+
+> `ma_alignment` also demands close > sma_50, which a 50-61.8% retracement
+> normally breaks — using it to gate a pullback screen would exclude the very
+> setups the screen exists to find.
+
+The preset then added `trend_template_score >= 6`, which reimposes exactly that
+through criterion 5 (close > SMA50) and criterion 1 (close > SMA150 and
+SMA200). Measured inside the zone over this window:
+
+| Trend template criterion | Held on |
+|---|---|
+| 5. close > SMA50 | **9.0%** |
+| 8. RS rating ≥ 70 | 9.9% |
+| 1. close > SMA150 and SMA200 | **15.1%** |
+| 2. SMA150 > SMA200 | 40.8% |
+| 3. SMA200 slope > 0 | 42.6% |
+| 4. SMA50 > SMA150 and SMA200 | 52.1% |
+| 6. close ≥ 1.3× 52w low | 24.1% |
+| 7. close ≥ 0.75× 52w high | 41.6% |
+
+Demanding six of eight asked the screen to find a deep pullback and then
+required price not to have pulled back. The template is now replaced by
+criterion 3 alone — the slope of the long average, which a retracement does
+not invalidate. `is_long_term_uptrend` already carries SMA50 > SMA200, the
+pullback-safe half of criterion 4.
+
+**This raises the count from 1 signal to 2.** The trend gates were never the
+binding constraint:
+
+| Gate | Signals over the window |
+|---|---|
+| As shipped | 1 |
+| Reconciled, RS ≥ 70 | **2** |
+| Reconciled, RS ≥ 50 | 4 |
+| Reconciled, no RS gate | 8 |
+| **No trend gate at all — the ceiling** | **56** |
+
+Fifty-six in seven years is the most this screen can produce however its trend
+gates are set. The real cliffs are elsewhere: `in_fib_zone` admits 8,897 of
+642,952 eligible rows (1.4%), and of those only 282 carry a reversal bar (3.2%),
+which the volume shape then takes to 84 and the reward:risk floor to 56.
+
+`rs_rating >= 70` is the same tension in milder form — a deep pullback depresses
+the 3-month leg of the rating. It is left at 70 deliberately: relaxing it is a
+decision about what the screen is *for*, not a contradiction to repair.
 
 This is a finding about the screen, not about the exit rule. **FR-19.4's
 Fibonacci arm cannot be answered by any exit rule**, because there is nothing to
@@ -209,10 +253,12 @@ Not recommendations to act on, only the questions the data raises:
    sweep over 0.02–0.06 did not help. A 5% arm on a setup whose winners
    historically run 39.56% is cutting into the part that pays. Testing a higher
    arm is a different experiment, not a tuning of this one.
-2. **The Fibonacci arm needs an FR-17 decision before it can be retested.** One
-   signal in seven years is not a sample. Either the trend gates and the
-   retracement band need reconciling, or the screen is accepted as a rarity and
-   dropped from consideration for a 2–3 slot strategy.
+2. **The Fibonacci arm cannot serve a 2–3 slot strategy at any trend-gate
+   setting.** The gates have been reconciled and it buys one extra signal. With
+   a ceiling of 56 over seven years, the remaining questions belong to FR-17,
+   not here: whether `in_fib_zone` at 1.4% of eligible rows and the reversal bar
+   at 3.2% of those are the intended strictness, and whether `rs_rating >= 70`
+   should stand inside a deep pullback.
 3. **Open question Q-4 is still unanswered** and these runs assume one reading:
    the cooldown applies to time-exits as well as stops. Given the cooldown moved
    trade count by less than 1% either way, resolving it will not change the

@@ -202,9 +202,40 @@ PRESETS: Final[dict[str, dict[str, Any]]] = {
             "op": "AND",
             "conditions": [
                 # Trend gates first: this is a pullback screen, so the trend
-                # it is pulling back within has to exist.
+                # it is pulling back within has to exist. Every gate here has
+                # to survive a 50-61.8% retracement, because that is what the
+                # screen is looking for.
+                #
+                # The metric engine already draws that line. `is_long_term_
+                # uptrend` exists because `ma_alignment` demands close > SMA50,
+                # "which a 50-61.8% retracement normally breaks - using it to
+                # gate a pullback screen would exclude the very setups the
+                # screen exists to find".
+                #
+                # `trend_template_score >= 6` used to sit here and reintroduced
+                # that same condition through the back door: criterion 5 is
+                # close > SMA50, criterion 1 is close > SMA150 and SMA200.
+                # Measured over 2019-2026, inside the zone criterion 5 held on
+                # 9.0% of rows and criterion 1 on 15.1%. Demanding six of eight
+                # asked the screen to find a deep pullback and then required
+                # price not to have pulled back.
+                #
+                # What replaces it is criterion 3 - the slope of the long
+                # average - which a retracement does not invalidate.
+                # `is_long_term_uptrend` already carries SMA50 > SMA200, the
+                # pullback-safe half of criterion 4. The rest of the template
+                # is a price-versus-average test and has no business gating
+                # this screen.
                 {"field": "is_long_term_uptrend", "operator": "=", "value": True},
-                {"field": "trend_template_score", "operator": ">=", "value": 6},
+                {"field": "sma_200_slope_1m", "operator": ">", "value": 0.0},
+                # FR-17.6's own quality floor, left where it is. Inside the
+                # zone it holds on 9.9% of rows, which is the same tension in
+                # milder form - a deep pullback depresses the 3-month leg of
+                # the rating. Whether to relax it is a decision about what the
+                # screen is for, not a contradiction to be repaired, so it
+                # stays until someone decides otherwise. Measured over the
+                # window: 70 yields 2 signals, 50 yields 4, dropping it
+                # entirely yields 8.
                 {"field": "rs_rating", "operator": ">=", "value": 70},
                 # Location.
                 {"field": "in_fib_zone", "operator": "=", "value": True},
@@ -290,25 +321,25 @@ def fib_funnel(conn: duckdb.DuckDBPyConnection, as_of: date) -> list[dict[str, A
         SELECT
           count(*),
           sum(CASE WHEN is_eligible AND is_long_term_uptrend
-                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND sma_200_slope_1m > 0 AND rs_rating >= 70
                    THEN 1 ELSE 0 END),
           sum(CASE WHEN is_eligible AND is_long_term_uptrend
-                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND sma_200_slope_1m > 0 AND rs_rating >= 70
                     AND fib_leg_high_price IS NOT NULL THEN 1 ELSE 0 END),
           sum(CASE WHEN is_eligible AND is_long_term_uptrend
-                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND sma_200_slope_1m > 0 AND rs_rating >= 70
                     AND in_fib_zone THEN 1 ELSE 0 END),
           sum(CASE WHEN is_eligible AND is_long_term_uptrend
-                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND sma_200_slope_1m > 0 AND rs_rating >= 70
                     AND in_fib_zone AND vol_impulse_ratio >= ?
                     AND vol_dryup_ratio <= ? THEN 1 ELSE 0 END),
           sum(CASE WHEN is_eligible AND is_long_term_uptrend
-                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND sma_200_slope_1m > 0 AND rs_rating >= 70
                     AND in_fib_zone AND vol_impulse_ratio >= ?
                     AND vol_dryup_ratio <= ? AND is_fib_reversal_bar
                    THEN 1 ELSE 0 END),
           sum(CASE WHEN is_eligible AND is_long_term_uptrend
-                    AND trend_template_score >= 6 AND rs_rating >= 70
+                    AND sma_200_slope_1m > 0 AND rs_rating >= 70
                     AND in_fib_zone AND vol_impulse_ratio >= ?
                     AND vol_dryup_ratio <= ? AND is_fib_reversal_bar
                     AND fib_reward_risk >= ? THEN 1 ELSE 0 END)
@@ -324,7 +355,7 @@ def fib_funnel(conn: duckdb.DuckDBPyConnection, as_of: date) -> list[dict[str, A
 
     labels = (
         ("universe", "NIFTY 500 constituents"),
-        ("gated", "Eligible, in a long-term uptrend, RS >= 70"),
+        ("gated", "Eligible, long-term uptrend, SMA200 rising, RS >= 70"),
         ("valid_leg", "Has a confirmed impulse leg"),
         ("in_zone", "Price inside the 50-61.8% band"),
         ("volume_shape", "Advance confirmed, pullback thinned"),

@@ -758,5 +758,6 @@ already inside budget was rejected; see D-10.
 | 2026-09-09 | FR-19.4 gate run: all four configurations fail. Phase 2 stays blocked. Survivorship warning repaired after one stray membership interval silenced it | FR-19.4 |
 | 2026-09-10 | `materialise` fixed for bulk ranges (index dropped around the rewrite); history re-materialised from 2019 so FR-17 columns span the backtest window | FR-5.4, FR-17 |
 | 2026-09-10 | FR-19.4 gate re-run on the complete history: still fails on all four. Fibonacci arm re-diagnosed - one signal in seven years, from the trend gates and the retracement band rarely holding at once | FR-19.4 |
+| 2026-09-10 | FR-17 trend gates reconciled with the retracement band: the trend template reimposed close > SMA50, which the zone breaks by definition. Replaced by the SMA200 slope; `fib_funnel` brought back into step | FR-17.6, FR-17.8 |
 
 <!-- Append new rows above this line. Take the next free ID from §2. -->
